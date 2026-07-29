@@ -1,0 +1,119 @@
+// Prisma Schema for Farmers Pest Detection Backend
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(uuid())
+  name              String
+  email             String?  @unique
+  phone             String?  @unique
+  passwordHash      String?  @map("password_hash")
+  farmLocation      String?  @map("farm_location")
+  preferredLanguage String   @default("en") @map("preferred_language")
+  isGuest           Boolean  @default(false) @map("is_guest")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  scans Scan[]
+
+  @@map("users")
+}
+
+model Pest {
+  id                String   @id @default(uuid())
+  name              String   @unique
+  scientificName    String?  @map("scientific_name")
+  description       String
+  isHarmfulDefault  Boolean  @default(true) @map("is_harmful_default")
+  imageUrl          String?  @map("image_url")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  scans             Scan[]
+  pestCrops         PestCrop[]
+  pestPesticides    PestPesticide[]
+
+  @@map("pests")
+}
+
+model Crop {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  category  String?
+  imageUrl  String?  @map("image_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  pestCrops PestCrop[]
+
+  @@map("crops")
+}
+
+model PestCrop {
+  id                String   @id @default(uuid())
+  pestId            String   @map("pest_id")
+  cropId            String   @map("crop_id")
+  damageDescription String   @map("damage_description")
+  severity          String   @default("Moderate") // Low, Moderate, High, Severe
+
+  pest Pest @relation(fields: [pestId], references: [id], onDelete: Cascade)
+  crop Crop @relation(fields: [cropId], references: [id], onDelete: Cascade)
+
+  @@unique([pestId, cropId])
+  @@map("pest_crops")
+}
+
+model Pesticide {
+  id                String   @id @default(uuid())
+  name              String   @unique
+  activeIngredient  String   @map("active_ingredient")
+  type              String   @default("chemical") // chemical | organic
+  dosage            String
+  applicationMethod String   @map("application_method")
+  safetyNotes       String   @map("safety_notes")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  pestPesticides PestPesticide[]
+
+  @@map("pesticides")
+}
+
+model PestPesticide {
+  id                  String   @id @default(uuid())
+  pestId              String   @map("pest_id")
+  pesticideId         String   @map("pesticide_id")
+  effectivenessRating String   @default("High") // Medium, High, Essential
+
+  pest      Pest      @relation(fields: [pestId], references: [id], onDelete: Cascade)
+  pesticide Pesticide @relation(fields: [pesticideId], references: [id], onDelete: Cascade)
+
+  @@unique([pestId, pesticideId])
+  @@map("pest_pesticides")
+}
+
+model Scan {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  pestId          String?  @map("pest_id")
+  imageUrl        String   @map("image_url")
+  confidenceScore Float    @default(0.0) @map("confidence_score")
+  isHarmful       Boolean  @default(true) @map("is_harmful")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pest Pest? @relation(fields: [pestId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([pestId])
+  @@map("scans")
+}
