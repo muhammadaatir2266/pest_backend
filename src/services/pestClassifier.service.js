@@ -1,12 +1,10 @@
 const fs = require('fs');
 const path = require('path');
-const { HfInference } = require('@huggingface/inference');
 const prisma = require('../config/database');
 const logger = require('../config/logger');
 
 const hfApiKey = process.env.HUGGINGFACE_API_KEY || '';
 const hfModel = process.env.HUGGINGFACE_MODEL || 'underdogquality/yolo11s-pest-detection';
-const hf = new HfInference(hfApiKey);
 
 /**
  * Classify pest image using Hugging Face Vision Model and map result to DB
@@ -20,18 +18,30 @@ async function classifyPestImage(imagePath) {
     if (fs.existsSync(imagePath)) {
       const imageBuffer = fs.readFileSync(imagePath);
 
-      // Attempt Hugging Face Inference Call if API Key or Model available
+      // Attempt Hugging Face Inference Call if API Key is configured
       if (hfApiKey && hfApiKey !== 'hf_example_token_key') {
         logger.info(`Sending image to Hugging Face model: ${hfModel}`);
-        const response = await hf.imageClassification({
-          model: hfModel,
-          data: imageBuffer,
+        const endpoint = `https://router.huggingface.co/hf-inference/models/${hfModel}`;
+        const hfRes = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${hfApiKey}`,
+            'Content-Type': 'application/octet-stream',
+          },
+          body: imageBuffer,
         });
 
-        if (Array.isArray(response) && response.length > 0) {
-          detectedLabel = response[0].label;
-          confidence = Math.round(response[0].score * 100) / 100;
-          logger.info(`Hugging Face detected: ${detectedLabel} with confidence ${confidence}`);
+        if (hfRes.ok) {
+          const response = await hfRes.json();
+          if (Array.isArray(response) && response.length > 0) {
+            detectedLabel = response[0].label;
+            const score = response[0].score || 0.85;
+            confidence = Math.round(score * 100) / 100;
+            logger.info(`Hugging Face detected: ${detectedLabel} with confidence ${confidence}`);
+          }
+        } else {
+          const errText = await hfRes.text();
+          logger.warn(`Hugging Face API returned HTTP ${hfRes.status}: ${errText.substring(0, 150)}`);
         }
       }
     }
