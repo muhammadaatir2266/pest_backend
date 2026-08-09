@@ -10,7 +10,9 @@ const hfModel = process.env.HUGGINGFACE_MODEL || 'underdogquality/yolo11s-pest-d
 const NON_PEST_KEYWORDS = [
   'person', 'man', 'woman', 'human', 'face', 'boy', 'girl', 'people',
   'clothing', 'shoe', 'shirt', 'jacket', 'car', 'vehicle', 'dog', 'cat',
-  'building', 'room', 'table', 'chair', 'wall', 'furniture', 'phone', 'laptop'
+  'building', 'room', 'table', 'chair', 'wall', 'furniture', 'phone', 'laptop',
+  'computer', 'monitor', 'keyboard', 'desk', 'office', 'screen', 'paper', 'book',
+  'house', 'indoor', 'floor', 'ceiling', 'shadow', 'device', 'glass', 'cup', 'bottle'
 ];
 
 const PEST_KEYWORDS = [
@@ -96,47 +98,55 @@ async function classifyPestImage(imagePath) {
   try {
     if (fs.existsSync(imagePath) && hfApiKey && hfApiKey !== 'hf_example_token_key') {
       logger.info(`Sending image to Hugging Face model: ${hfModel}`);
-      const endpoint = `https://router.huggingface.co/hf-inference/models/${hfModel}`;
+      const endpoints = [
+        `https://api-inference.huggingface.co/models/${hfModel}`,
+        `https://router.huggingface.co/hf-inference/models/${hfModel}`
+      ];
       const imageBuffer = fs.readFileSync(imagePath);
-      const hfRes = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${hfApiKey}`,
-          'Content-Type': 'application/octet-stream',
-        },
-        body: imageBuffer,
-      });
+      
+      for (const endpoint of endpoints) {
+        try {
+          const hfRes = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${hfApiKey}`,
+              'Content-Type': 'application/octet-stream',
+            },
+            body: imageBuffer,
+          });
 
-      if (hfRes.ok) {
-        const response = await hfRes.json();
-        if (Array.isArray(response) && response.length > 0) {
-          const topResult = response[0];
-          const rawLabel = (topResult.label || '').toLowerCase();
-          const score = topResult.score || 0.85;
+          if (hfRes.ok) {
+            const response = await hfRes.json();
+            if (Array.isArray(response) && response.length > 0) {
+              const topResult = response[0];
+              const rawLabel = (topResult.label || '').toLowerCase();
+              const score = topResult.score || 0.85;
 
-          // Check if top result is explicit non-pest object
-          const isExplicitNonPest = NON_PEST_KEYWORDS.some(kw => rawLabel.includes(kw));
-          if (isExplicitNonPest || score < 0.40) {
-            logger.info(`Hugging Face detected non-pest or low confidence label: ${rawLabel} (${score})`);
-            return {
-              isPestDetected: false,
-              pestId: null,
-              pest: null,
-              confidenceScore: Math.round(score * 100) / 100,
-              isHarmful: false,
-              message: 'No pest detected in the image. Please take a clear picture of an affected crop or pest.',
-              affectedCrops: [],
-              recommendedPesticides: []
-            };
+              // Check if top result is explicit non-pest object
+              const isExplicitNonPest = NON_PEST_KEYWORDS.some(kw => rawLabel.includes(kw));
+              if (isExplicitNonPest || score < 0.40) {
+                logger.info(`Hugging Face detected non-pest or low confidence label: ${rawLabel} (${score})`);
+                return {
+                  isPestDetected: false,
+                  pestId: null,
+                  pest: null,
+                  confidenceScore: Math.round(score * 100) / 100,
+                  isHarmful: false,
+                  message: 'No pest detected in the image. Please take a clear picture of an affected crop or pest.',
+                  affectedCrops: [],
+                  recommendedPesticides: []
+                };
+              }
+
+              detectedLabel = topResult.label;
+              confidence = Math.round(score * 100) / 100;
+              logger.info(`Hugging Face detected pest label: ${detectedLabel} with confidence ${confidence}`);
+              break;
+            }
           }
-
-          detectedLabel = topResult.label;
-          confidence = Math.round(score * 100) / 100;
-          logger.info(`Hugging Face detected pest label: ${detectedLabel} with confidence ${confidence}`);
+        } catch (e) {
+          logger.warn(`HF endpoint ${endpoint} error: ${e.message}`);
         }
-      } else {
-        const errText = await hfRes.text();
-        logger.warn(`Hugging Face API returned HTTP ${hfRes.status}: ${errText.substring(0, 150)}`);
       }
     }
   } catch (err) {
@@ -165,15 +175,7 @@ async function classifyPestImage(imagePath) {
     );
   }
 
-  // If green foliage is detected and no explicit label match, match pest based on image foliage match or default first pest
-  if (!matchedPest && pixelAnalysis.isPlantFoliage && pests.length > 0) {
-    const fileStats = fs.existsSync(imagePath) ? fs.statSync(imagePath).size : 1234;
-    const index = fileStats % pests.length;
-    matchedPest = pests[index];
-    confidence = 0.88;
-  }
-
-  // If no matched pest could be identified (or non-plant image uploaded)
+  // If no explicit model pest label matched, strictly report no pest detected
   if (!matchedPest) {
     return {
       isPestDetected: false,
