@@ -34,9 +34,11 @@ const createScan = async (req, res, next) => {
       });
     }
 
-    return sendSuccess(res, 'Pest analysis completed successfully', {
+    return sendSuccess(res, analysis.isPestDetected ? 'Pest analysis completed successfully' : 'No pest detected', {
       scanId: savedScan ? savedScan.id : 'guest-scan-id',
       imageUrl,
+      isPestDetected: analysis.isPestDetected,
+      message: analysis.message || (analysis.isPestDetected ? 'Pest detected' : 'No pest detected'),
       pest: analysis.pest,
       confidenceScore: analysis.confidenceScore,
       isHarmful: analysis.isHarmful,
