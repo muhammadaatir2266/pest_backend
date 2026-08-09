@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Node.js REST API Backend for Farmers Pest Detection Application",
   "main": "src/server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "start": "node src/server.js",
     "railway:start": "npx prisma db push && node prisma/seed.js && node src/server.js",
