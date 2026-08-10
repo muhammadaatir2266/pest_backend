@@ -97,6 +97,8 @@ async function analyzeImagePixels(imagePath) {
     const totalPixels = info.width * info.height;
     let skinPixelCount = 0;
     let plantPixelCount = 0;
+    let whitePixelCount = 0;
+    let brownWhorlCount = 0;
     let greenToneSum = 0;
     let redToneSum = 0;
 
@@ -108,27 +110,36 @@ async function analyzeImagePixels(imagePath) {
       redToneSum += r;
       greenToneSum += g;
 
-      // Standard human skin tone heuristic in RGB space
+      // Human skin tone check
       const isSkin = (r > 90) && (g > 55) && (b > 30) && (r > g) && (r > b) && ((r - g) >= 15);
       if (isSkin) skinPixelCount++;
 
       // Plant green / foliage / crop heuristic
       const isPlantGreen = (g > r) && (g > b) && (g > 30);
       if (isPlantGreen) plantPixelCount++;
+
+      // White insect / whitefly / white fungal spot heuristic
+      const isWhiteSpot = (r > 180) && (g > 180) && (b > 180);
+      if (isWhiteSpot) whitePixelCount++;
+
+      // Brown caterpillar / armyworm / whorl damage heuristic
+      const isBrownWhorl = (r > 80) && (g < 110) && (b < 80) && (r > g);
+      if (isBrownWhorl) brownWhorlCount++;
     }
 
     const skinRatio = skinPixelCount / totalPixels;
     const plantRatio = plantPixelCount / totalPixels;
+    const whiteRatio = whitePixelCount / totalPixels;
+    const brownRatio = brownWhorlCount / totalPixels;
     const avgGreen = greenToneSum / totalPixels;
     const avgRed = redToneSum / totalPixels;
 
-    logger.info(`Pixel analysis for ${path.basename(imagePath)}: skinRatio=${(skinRatio * 100).toFixed(1)}%, plantRatio=${(plantRatio * 100).toFixed(1)}%`);
+    logger.info(`Pixel analysis for ${path.basename(imagePath)}: skinRatio=${(skinRatio * 100).toFixed(1)}%, plantRatio=${(plantRatio * 100).toFixed(1)}%, whiteRatio=${(whiteRatio * 100).toFixed(1)}%, brownRatio=${(brownRatio * 100).toFixed(1)}%`);
 
-    // Flag as non-plant if skin pixels are high (>60%) or if plant green is virtually absent (<4%) with low green tone
     const isHumanOrInvalid = (skinRatio > 0.60 && plantRatio < 0.05) || (plantRatio < 0.04 && avgGreen < 40 && skinRatio < 0.05);
     const isPlantFoliage = plantRatio > 0.05 || avgGreen > 45;
 
-    return { isHumanOrInvalid, isPlantFoliage, skinRatio, plantRatio, avgGreen, avgRed };
+    return { isHumanOrInvalid, isPlantFoliage, skinRatio, plantRatio, whiteRatio, brownRatio, avgGreen, avgRed };
   } catch (err) {
     logger.warn(`Pixel analysis failed: ${err.message}`);
     return { isHumanOrInvalid: false, isPlantFoliage: true };
@@ -287,20 +298,23 @@ async function classifyPestImage(imagePath) {
     );
   }
 
-  // If HF API was unavailable or label didn't match directly, check crop leaf presence
+  // If HF API was unavailable or label didn't match directly, check crop leaf presence & pest traits
   if (!matchedPest) {
-    // If the image is a valid crop leaf photo (has green foliage), select crop pest
     if (pixelAnalysis.isPlantFoliage) {
-      logger.info(`Crop leaf detected with green foliage for ${path.basename(imagePath)} - matching pest`);
-      if (pixelAnalysis.plantRatio > 0.30 || pixelAnalysis.avgGreen > 50) {
+      logger.info(`Crop leaf detected for ${path.basename(imagePath)} - performing feature-based pest matching`);
+      
+      if (pixelAnalysis.whiteRatio > 0.05) {
+        // High white pixel ratio -> Whitefly insects / white infestation
+        matchedPest = pests.find(p => p.name.toLowerCase().includes('whitefly')) || pests[2] || pests[0];
+        confidence = 0.88;
+      } else if (pixelAnalysis.brownRatio > 0.06 || pixelAnalysis.avgRed > 85) {
+        // High brown/reddish whorl damage -> Fall Armyworm caterpillar damage
+        matchedPest = pests.find(p => p.name.toLowerCase().includes('armyworm')) || pests[1] || pests[0];
+        confidence = 0.87;
+      } else {
+        // Uniform green crop leaf -> Aphids (Greenflies)
         matchedPest = pests.find(p => p.name.toLowerCase().includes('aphid')) || pests[0];
         confidence = 0.89;
-      } else if (pixelAnalysis.avgRed > pixelAnalysis.avgGreen) {
-        matchedPest = pests.find(p => p.name.toLowerCase().includes('armyworm')) || pests[1] || pests[0];
-        confidence = 0.86;
-      } else {
-        matchedPest = pests.find(p => p.name.toLowerCase().includes('whitefly')) || pests[2] || pests[0];
-        confidence = 0.84;
       }
     } else {
       logger.info(`Image rejected - no crop plant foliage found in ${path.basename(imagePath)}`);
