@@ -287,35 +287,19 @@ async function classifyPestImage(imagePath) {
     );
   }
 
-  // If HF API was unavailable or label didn't match directly, perform smart agricultural crop/pest match
+  // If no explicit model pest label matched, strictly report no pest detected
   if (!matchedPest) {
-    // If the image lacks plant green or crop foliage, reject as non-pest
-    if (pixelAnalysis.plantRatio < 0.04 && pixelAnalysis.avgGreen < 40) {
-      logger.info(`Image rejected during fallback due to low plant green content (${pixelAnalysis.plantRatio})`);
-      return {
-        isPestDetected: false,
-        pestId: null,
-        pest: null,
-        confidenceScore: 0,
-        isHarmful: false,
-        message: 'No pest or plant disease detected in this image. Please take a clear picture of an affected crop leaf or insect pest.',
-        affectedCrops: [],
-        recommendedPesticides: []
-      };
-    }
-
-    logger.info(`Performing smart crop image classification fallback for ${path.basename(imagePath)}`);
-    // Select agricultural pest (Aphids / Armyworm / Whitefly) based on pixel analysis
-    if (pixelAnalysis.plantRatio > 0.30 || pixelAnalysis.avgGreen > 50) {
-      matchedPest = pests.find(p => p.name.toLowerCase().includes('aphid')) || pests[0];
-      confidence = 0.89;
-    } else if (pixelAnalysis.avgRed > pixelAnalysis.avgGreen) {
-      matchedPest = pests.find(p => p.name.toLowerCase().includes('armyworm')) || pests[1] || pests[0];
-      confidence = 0.86;
-    } else {
-      matchedPest = pests.find(p => p.name.toLowerCase().includes('whitefly')) || pests[2] || pests[0];
-      confidence = 0.84;
-    }
+    logger.info(`No explicit pest label matched for image ${path.basename(imagePath)}`);
+    return {
+      isPestDetected: false,
+      pestId: null,
+      pest: null,
+      confidenceScore: 0,
+      isHarmful: false,
+      message: 'No pest or plant disease detected in this image. Please take a clear picture of an affected crop leaf or insect pest.',
+      affectedCrops: [],
+      recommendedPesticides: []
+    };
   }
 
   return {
