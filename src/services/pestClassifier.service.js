@@ -12,7 +12,10 @@ const NON_PEST_KEYWORDS = [
   'clothing', 'shoe', 'shirt', 'jacket', 'car', 'vehicle', 'dog', 'cat',
   'building', 'room', 'table', 'chair', 'wall', 'furniture', 'phone', 'laptop',
   'computer', 'monitor', 'keyboard', 'desk', 'office', 'screen', 'paper', 'book',
-  'house', 'indoor', 'floor', 'ceiling', 'shadow', 'device', 'glass', 'cup', 'bottle'
+  'house', 'indoor', 'floor', 'ceiling', 'shadow', 'device', 'glass', 'cup', 'bottle',
+  'notebook', 'display', 'television', 'tv', 'electronics', 'space bar', 'handheld',
+  'cellular', 'telephone', 'modem', 'couch', 'pillow', 'carpet', 'lamp', 'door', 'window',
+  'plate', 'mug', 'fork', 'spoon', 'stage', 'spotlight'
 ];
 
 // Fallback in-memory pests database when remote Postgres is unreachable
@@ -121,9 +124,9 @@ async function analyzeImagePixels(imagePath) {
 
     logger.info(`Pixel analysis for ${path.basename(imagePath)}: skinRatio=${(skinRatio * 100).toFixed(1)}%, plantRatio=${(plantRatio * 100).toFixed(1)}%`);
 
-    // Strictly flag as human ONLY if skin ratio is overwhelming (>65%) and zero plant features
-    const isHumanOrInvalid = (skinRatio > 0.65 && plantRatio < 0.05);
-    const isPlantFoliage = plantRatio > 0.05 || avgGreen > 40;
+    // Flag as non-plant if skin pixels are high (>60%) or if plant green is virtually absent (<3%) with low green tone
+    const isHumanOrInvalid = (skinRatio > 0.60 && plantRatio < 0.05) || (plantRatio < 0.03 && avgGreen < 40 && skinRatio < 0.05);
+    const isPlantFoliage = plantRatio > 0.04 || avgGreen > 40;
 
     return { isHumanOrInvalid, isPlantFoliage, skinRatio, plantRatio, avgGreen, avgRed };
   } catch (err) {
@@ -151,7 +154,7 @@ async function classifyPestImage(imagePath) {
       pest: null,
       confidenceScore: 0,
       isHarmful: false,
-      message: 'No pest or plant disease detected. The uploaded picture appears to contain a human portrait or non-plant object. Please upload a clear photo of an affected crop leaf or insect pest.',
+      message: 'No pest or plant disease detected. The uploaded picture appears to contain a non-plant object, laptop, or human portrait. Please upload a clear photo of an affected crop leaf or insect pest.',
       affectedCrops: [],
       recommendedPesticides: []
     };
@@ -162,9 +165,9 @@ async function classifyPestImage(imagePath) {
     if (fs.existsSync(imagePath) && hfApiKey && hfApiKey !== 'hf_example_token_key') {
       logger.info(`Sending image to Hugging Face Vision model...`);
       const targetModels = [
-        hfModel,
         'microsoft/resnet-50',
-        'google/vit-base-patch16-224'
+        'google/vit-base-patch16-224',
+        hfModel
       ];
       const imageBuffer = fs.readFileSync(imagePath);
       
@@ -204,7 +207,7 @@ async function classifyPestImage(imagePath) {
                     pest: null,
                     confidenceScore: Math.round(score * 100) / 100,
                     isHarmful: false,
-                    message: 'No pest detected in the image. Please take a clear picture of an affected crop or pest.',
+                    message: `No pest detected in the image (detected: ${topResult.label}). Please take a clear picture of an affected crop leaf or insect pest.`,
                     affectedCrops: [],
                     recommendedPesticides: []
                   };
@@ -286,8 +289,23 @@ async function classifyPestImage(imagePath) {
 
   // If HF API was unavailable or label didn't match directly, perform smart agricultural crop/pest match
   if (!matchedPest) {
+    // If the image lacks plant green or crop foliage, reject as non-pest
+    if (pixelAnalysis.plantRatio < 0.04 && pixelAnalysis.avgGreen < 40) {
+      logger.info(`Image rejected during fallback due to low plant green content (${pixelAnalysis.plantRatio})`);
+      return {
+        isPestDetected: false,
+        pestId: null,
+        pest: null,
+        confidenceScore: 0,
+        isHarmful: false,
+        message: 'No pest or plant disease detected in this image. Please take a clear picture of an affected crop leaf or insect pest.',
+        affectedCrops: [],
+        recommendedPesticides: []
+      };
+    }
+
     logger.info(`Performing smart crop image classification fallback for ${path.basename(imagePath)}`);
-    // Select default agricultural pest (Aphids / Armyworm / Whitefly) based on pixel analysis
+    // Select agricultural pest (Aphids / Armyworm / Whitefly) based on pixel analysis
     if (pixelAnalysis.plantRatio > 0.30 || pixelAnalysis.avgGreen > 50) {
       matchedPest = pests.find(p => p.name.toLowerCase().includes('aphid')) || pests[0];
       confidence = 0.89;
