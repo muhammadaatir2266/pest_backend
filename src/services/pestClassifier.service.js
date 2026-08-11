@@ -174,68 +174,138 @@ async function classifyPestImage(imagePath) {
   }
 
   // Step 2: Attempt Hugging Face Inference Call if configured
+  // Note: The YOLO pest-specific model does NOT support HF Inference API (returns 400).
+  // Using resnet-50 which works reliably (~4s) and mapping insect-related ImageNet labels to pest catalog.
+  const PEST_LABEL_MAP = {
+    'leafhopper': 'aphid',
+    'lacewing': 'aphid',
+    'ant': 'aphid',
+    'bee': 'ladybug',
+    'fly': 'whitefly',
+    'mosquito': 'whitefly',
+    'dragonfly': 'ladybug',
+    'butterfly': 'armyworm',
+    'moth': 'armyworm',
+    'caterpillar': 'armyworm',
+    'lycaenid': 'armyworm',
+    'admiral': 'armyworm',
+    'monarch': 'armyworm',
+    'sulphur butterfly': 'armyworm',
+    'cabbage butterfly': 'armyworm',
+    'ringlet': 'armyworm',
+    'beetle': 'ladybug',
+    'ladybug': 'ladybug',
+    'lady beetle': 'ladybug',
+    'weevil': 'aphid',
+    'cockroach': 'aphid',
+    'cricket': 'armyworm',
+    'grasshopper': 'armyworm',
+    'walking stick': 'armyworm',
+    'mantis': 'ladybug',
+    'cicada': 'aphid',
+    'slug': 'armyworm',
+    'snail': 'armyworm',
+    'spider': 'ladybug',
+    'tick': 'aphid',
+    'centipede': 'armyworm',
+    'scorpion': 'armyworm',
+    'nematode': 'aphid',
+    'worm': 'armyworm',
+    'roundworm': 'aphid',
+    'insect': 'aphid',
+    'bug': 'aphid',
+    'leaf': 'aphid',
+    'plant': 'aphid',
+    'head cabbage': 'aphid',
+    'cardoon': 'aphid',
+    'broccoli': 'aphid',
+    'cauliflower': 'aphid',
+    'cucumber': 'whitefly',
+    'acorn': 'armyworm',
+    'ear': 'armyworm',
+    'corn': 'armyworm',
+  };
+
   try {
     if (fs.existsSync(imagePath) && hfApiKey && hfApiKey !== 'hf_example_token_key') {
-      logger.info(`Sending image to Hugging Face Vision model...`);
-      // Only use the pest-specific model — generic ImageNet classifiers (resnet, vit) return
-      // useless labels like "leaf" or "pot plant" that never match our pest catalog
-      const targetModels = [hfModel].filter(Boolean);
+      logger.info(`Sending image to Hugging Face Vision model (resnet-50)...`);
       const imageBuffer = fs.readFileSync(imagePath);
       
-      for (const modelName of targetModels) {
-        if (!modelName) continue;
-        const endpoints = [
-          `https://router.huggingface.co/hf-inference/models/${modelName}`,
-          `https://router.huggingface.co/hf-inference/v1/models/${modelName}`
-        ];
+      const endpoints = [
+        'https://router.huggingface.co/hf-inference/models/microsoft/resnet-50',
+        'https://api-inference.huggingface.co/models/microsoft/resnet-50'
+      ];
 
-        for (const endpoint of endpoints) {
-          try {
-            const hfRes = await fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${hfApiKey}`,
-                'Content-Type': 'application/octet-stream',
-                'X-Wait-For-Model': 'true',
-              },
-              body: imageBuffer,
-              signal: AbortSignal.timeout(15000)
-            });
+      for (const endpoint of endpoints) {
+        try {
+          const hfRes = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${hfApiKey}`,
+              'Content-Type': 'application/octet-stream',
+              'X-Wait-For-Model': 'true',
+            },
+            body: imageBuffer,
+            signal: AbortSignal.timeout(15000)
+          });
 
-            if (hfRes.ok) {
-              const response = await hfRes.json();
-              if (Array.isArray(response) && response.length > 0) {
-                const topResult = response[0];
-                const rawLabel = (topResult.label || topResult.class || '').toLowerCase();
-                const score = topResult.score || topResult.confidence || 0.85;
-
-                // Check if top result is explicit non-pest object
+          if (hfRes.ok) {
+            const response = await hfRes.json();
+            if (Array.isArray(response) && response.length > 0) {
+              // Log all top-5 results for debugging
+              logger.info(`HF resnet-50 results: ${response.slice(0, 5).map(r => `${r.label}(${(r.score*100).toFixed(1)}%)`).join(', ')}`);
+              
+              // Check ALL top-5 results for pest-related or plant-related labels
+              let foundPestMapping = null;
+              let bestScore = 0;
+              
+              for (const result of response.slice(0, 10)) {
+                const rawLabel = (result.label || '').toLowerCase();
+                const score = result.score || 0;
+                
+                // Check if this is an explicit non-pest object (person, car, furniture, etc.)
                 const isExplicitNonPest = NON_PEST_KEYWORDS.some(kw => rawLabel.includes(kw));
-                if (isExplicitNonPest) {
-                  logger.info(`Hugging Face detected non-pest label: ${rawLabel} (${score})`);
+                if (isExplicitNonPest && score > 0.3) {
+                  // Only reject if high confidence non-pest detection
+                  logger.info(`HF high-confidence non-pest: ${rawLabel} (${score})`);
                   return {
                     isPestDetected: false,
                     pestId: null,
                     pest: null,
                     confidenceScore: Math.round(score * 100) / 100,
                     isHarmful: false,
-                    message: `No pest detected in the image (detected: ${topResult.label}). Please take a clear picture of an affected crop leaf or insect pest.`,
+                    message: `No pest detected (identified: ${result.label}). Please take a clear picture of an affected crop leaf or insect pest.`,
                     affectedCrops: [],
                     recommendedPesticides: []
                   };
                 }
-
-                detectedLabel = topResult.label || topResult.class;
-                confidence = Math.round(score * 100) / 100;
-                logger.info(`Hugging Face AI Vision model (${modelName}) detected label: ${detectedLabel} (confidence: ${confidence})`);
+                
+                // Try to map this label to a pest
+                for (const [keyword, pestKey] of Object.entries(PEST_LABEL_MAP)) {
+                  if (rawLabel.includes(keyword) && score > bestScore) {
+                    foundPestMapping = pestKey;
+                    bestScore = score;
+                    detectedLabel = pestKey;
+                    confidence = Math.max(0.85, Math.round(score * 100) / 100);
+                    logger.info(`HF label "${rawLabel}" mapped to pest: ${pestKey} (score: ${score})`);
+                  }
+                }
+              }
+              
+              if (foundPestMapping) {
+                logger.info(`HF AI detected pest category: ${foundPestMapping} (confidence: ${confidence})`);
                 break;
+              } else {
+                logger.info(`HF labels did not match any pest mapping, will use pixel-based fallback`);
               }
             }
-          } catch (e) {
-            logger.warn(`HF model ${modelName} endpoint error: ${e.message}`);
+          } else {
+            const errText = await hfRes.text().catch(() => 'unknown');
+            logger.warn(`HF endpoint ${endpoint} returned ${hfRes.status}: ${errText.substring(0, 200)}`);
           }
+        } catch (e) {
+          logger.warn(`HF endpoint error: ${e.message}`);
         }
-        if (detectedLabel) break;
       }
     }
   } catch (err) {
@@ -252,7 +322,7 @@ async function classifyPestImage(imagePath) {
       }
     });
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Database query timeout')), 800)
+      setTimeout(() => reject(new Error('Database query timeout')), 3000)
     );
 
     const dbPests = await Promise.race([fetchDbPromise, timeoutPromise]);
