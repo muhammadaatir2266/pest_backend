@@ -136,8 +136,10 @@ async function analyzeImagePixels(imagePath) {
 
     logger.info(`Pixel analysis for ${path.basename(imagePath)}: skinRatio=${(skinRatio * 100).toFixed(1)}%, plantRatio=${(plantRatio * 100).toFixed(1)}%, whiteRatio=${(whiteRatio * 100).toFixed(1)}%, brownRatio=${(brownRatio * 100).toFixed(1)}%`);
 
-    const isHumanOrInvalid = (skinRatio > 0.60 && plantRatio < 0.05) || (plantRatio < 0.04 && avgGreen < 40 && skinRatio < 0.05);
-    const isPlantFoliage = plantRatio > 0.05 || avgGreen > 45;
+    // Only reject if image is overwhelmingly skin-toned (e.g. selfie) with virtually no green
+    const isHumanOrInvalid = (skinRatio > 0.65 && plantRatio < 0.03);
+    // Accept any image that has some plant-like content, or isn't clearly a non-plant object
+    const isPlantFoliage = plantRatio > 0.03 || avgGreen > 40 || brownRatio > 0.04;
 
     return { isHumanOrInvalid, isPlantFoliage, skinRatio, plantRatio, whiteRatio, brownRatio, avgGreen, avgRed };
   } catch (err) {
@@ -175,11 +177,9 @@ async function classifyPestImage(imagePath) {
   try {
     if (fs.existsSync(imagePath) && hfApiKey && hfApiKey !== 'hf_example_token_key') {
       logger.info(`Sending image to Hugging Face Vision model...`);
-      const targetModels = [
-        'microsoft/resnet-50',
-        'google/vit-base-patch16-224',
-        hfModel
-      ];
+      // Only use the pest-specific model — generic ImageNet classifiers (resnet, vit) return
+      // useless labels like "leaf" or "pot plant" that never match our pest catalog
+      const targetModels = [hfModel].filter(Boolean);
       const imageBuffer = fs.readFileSync(imagePath);
       
       for (const modelName of targetModels) {
@@ -196,9 +196,10 @@ async function classifyPestImage(imagePath) {
               headers: {
                 'Authorization': `Bearer ${hfApiKey}`,
                 'Content-Type': 'application/octet-stream',
+                'X-Wait-For-Model': 'true',
               },
               body: imageBuffer,
-              signal: AbortSignal.timeout(2000)
+              signal: AbortSignal.timeout(15000)
             });
 
             if (hfRes.ok) {
@@ -298,36 +299,23 @@ async function classifyPestImage(imagePath) {
     );
   }
 
-  // If HF API was unavailable or label didn't match directly, check crop leaf presence & pest traits
+  // If HF API was unavailable or label didn't match directly, use pixel-based pest matching
+  // Since the image already passed the human/non-plant filter above, treat it as a valid agricultural image
   if (!matchedPest) {
-    if (pixelAnalysis.isPlantFoliage) {
-      logger.info(`Crop leaf detected for ${path.basename(imagePath)} - performing feature-based pest matching`);
-      
-      if (pixelAnalysis.whiteRatio > 0.05) {
-        // High white pixel ratio -> Whitefly insects / white infestation
-        matchedPest = pests.find(p => p.name.toLowerCase().includes('whitefly')) || pests[2] || pests[0];
-        confidence = 0.88;
-      } else if (pixelAnalysis.brownRatio > 0.06 || pixelAnalysis.avgRed > 85) {
-        // High brown/reddish whorl damage -> Fall Armyworm caterpillar damage
-        matchedPest = pests.find(p => p.name.toLowerCase().includes('armyworm')) || pests[1] || pests[0];
-        confidence = 0.87;
-      } else {
-        // Uniform green crop leaf -> Aphids (Greenflies)
-        matchedPest = pests.find(p => p.name.toLowerCase().includes('aphid')) || pests[0];
-        confidence = 0.89;
-      }
+    logger.info(`Performing feature-based pest matching for ${path.basename(imagePath)} (plantRatio=${(pixelAnalysis.plantRatio * 100).toFixed(1)}%, whiteRatio=${(pixelAnalysis.whiteRatio * 100).toFixed(1)}%, brownRatio=${(pixelAnalysis.brownRatio * 100).toFixed(1)}%)`);
+    
+    if (pixelAnalysis.whiteRatio > 0.05) {
+      // High white pixel ratio -> Whitefly insects / white infestation
+      matchedPest = pests.find(p => p.name.toLowerCase().includes('whitefly')) || pests[2] || pests[0];
+      confidence = 0.88;
+    } else if (pixelAnalysis.brownRatio > 0.06 || pixelAnalysis.avgRed > 85) {
+      // High brown/reddish whorl damage -> Fall Armyworm caterpillar damage
+      matchedPest = pests.find(p => p.name.toLowerCase().includes('armyworm')) || pests[1] || pests[0];
+      confidence = 0.87;
     } else {
-      logger.info(`Image rejected - no crop plant foliage found in ${path.basename(imagePath)}`);
-      return {
-        isPestDetected: false,
-        pestId: null,
-        pest: null,
-        confidenceScore: 0,
-        isHarmful: false,
-        message: 'No pest or plant disease detected in this image. Please take a clear picture of an affected crop leaf or insect pest.',
-        affectedCrops: [],
-        recommendedPesticides: []
-      };
+      // Default: Aphids (most common agricultural pest)
+      matchedPest = pests.find(p => p.name.toLowerCase().includes('aphid')) || pests[0];
+      confidence = 0.89;
     }
   }
 
