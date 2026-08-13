@@ -167,8 +167,10 @@ async function analyzeImagePixels(imagePath) {
       redToneSum += r;
       greenToneSum += g;
 
-      // Human skin tone check
-      const isSkin = (r > 90) && (g > 55) && (b > 30) && (r > g) && (r > b) && ((r - g) >= 15);
+      // Human skin tone check — exclude earthy/soil browns (low blue, high red-green gap)
+      // Real skin: warm pink/peach. Soil: dull brown with low saturation
+      const isEarthyBrown = (r > 80) && (g > 60) && (b < 70) && ((r - g) < 40) && ((r - b) > 30);
+      const isSkin = !isEarthyBrown && (r > 90) && (g > 55) && (b > 30) && (r > g) && (r > b) && ((r - g) >= 15) && (b > 40);
       if (isSkin) skinPixelCount++;
 
       // Plant green / foliage / crop heuristic
@@ -203,15 +205,15 @@ async function analyzeImagePixels(imagePath) {
 
     logger.info(`Pixel analysis: skin=${(skinRatio * 100).toFixed(1)}%, plant=${(plantRatio * 100).toFixed(1)}%, white=${(whiteRatio * 100).toFixed(1)}%, brown=${(brownRatio * 100).toFixed(1)}%, redOrange=${(redOrangeRatio * 100).toFixed(1)}%, dark=${(darkRatio * 100).toFixed(1)}%`);
 
-    // Only reject if image is OVERWHELMINGLY skin-toned with virtually no green
-    const isHumanOrInvalid = (skinRatio > 0.65 && plantRatio < 0.03);
-    const isPlantFoliage = plantRatio > 0.03 || avgGreen > 40 || brownRatio > 0.04;
+    // Only reject if image is OVERWHELMINGLY skin-toned with virtually no green AND no brown (soil)
+    const isHumanOrInvalid = (skinRatio > 0.65 && plantRatio < 0.03 && brownRatio < 0.10);
+    const isPlantFoliage = plantRatio > 0.03 || avgGreen > 40 || brownRatio > 0.04 || darkRatio > 0.05;
 
     // Determine pest category based on pixel analysis
     let pestCategory = 'aphid'; // default: most common
-    if (redOrangeRatio > 0.03) {
+    if (redOrangeRatio > 0.01) {
       pestCategory = 'ladybug';
-    } else if (whiteRatio > 0.05) {
+    } else if (whiteRatio > 0.04) {
       pestCategory = 'whitefly';
     } else if (brownRatio > 0.06 || avgRed > 85) {
       pestCategory = 'armyworm';
