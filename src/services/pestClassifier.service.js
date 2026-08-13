@@ -177,13 +177,16 @@ async function classifyPestImage(imagePath) {
   // Note: The YOLO pest-specific model does NOT support HF Inference API (returns 400).
   // Using resnet-50 which works reliably (~4s) and mapping insect-related ImageNet labels to pest catalog.
   const PEST_LABEL_MAP = {
+    // Insects - direct pest matches
     'leafhopper': 'aphid',
     'lacewing': 'aphid',
     'ant': 'aphid',
     'bee': 'ladybug',
     'fly': 'whitefly',
+    'housefly': 'whitefly',
     'mosquito': 'whitefly',
     'dragonfly': 'ladybug',
+    'damselfly': 'ladybug',
     'butterfly': 'armyworm',
     'moth': 'armyworm',
     'caterpillar': 'armyworm',
@@ -194,26 +197,66 @@ async function classifyPestImage(imagePath) {
     'cabbage butterfly': 'armyworm',
     'ringlet': 'armyworm',
     'beetle': 'ladybug',
+    'leaf beetle': 'aphid',
+    'ground beetle': 'aphid',
+    'long-horned beetle': 'armyworm',
+    'tiger beetle': 'aphid',
+    'dung beetle': 'aphid',
     'ladybug': 'ladybug',
     'lady beetle': 'ladybug',
+    'ladybird': 'ladybug',
     'weevil': 'aphid',
     'cockroach': 'aphid',
     'cricket': 'armyworm',
     'grasshopper': 'armyworm',
     'walking stick': 'armyworm',
+    'stick insect': 'armyworm',
     'mantis': 'ladybug',
+    'praying mantis': 'ladybug',
     'cicada': 'aphid',
     'slug': 'armyworm',
     'snail': 'armyworm',
     'spider': 'ladybug',
+    'garden spider': 'ladybug',
+    'barn spider': 'ladybug',
+    'black widow': 'ladybug',
+    'wolf spider': 'ladybug',
+    'tarantula': 'ladybug',
     'tick': 'aphid',
     'centipede': 'armyworm',
+    'millipede': 'armyworm',
     'scorpion': 'armyworm',
     'nematode': 'aphid',
     'worm': 'armyworm',
+    'earthworm': 'armyworm',
+    'flatworm': 'armyworm',
     'roundworm': 'aphid',
     'insect': 'aphid',
     'bug': 'aphid',
+    'stinkbug': 'aphid',
+    'shield bug': 'aphid',
+    'aphid': 'aphid',
+    'whitefly': 'whitefly',
+    'armyworm': 'armyworm',
+    'bollworm': 'armyworm',
+    'cutworm': 'armyworm',
+    'hornworm': 'armyworm',
+    'inchworm': 'armyworm',
+    'silkworm': 'armyworm',
+    'mite': 'aphid',
+    'thrip': 'aphid',
+    'wasp': 'ladybug',
+    'hornet': 'ladybug',
+    'sawfly': 'armyworm',
+    'borer': 'armyworm',
+    'maggot': 'armyworm',
+    'grub': 'armyworm',
+    'larva': 'armyworm',
+    'pupa': 'armyworm',
+    'cocoon': 'armyworm',
+    'chrysalis': 'armyworm',
+    
+    // Plant / crop / leaf related ImageNet labels
     'leaf': 'aphid',
     'plant': 'aphid',
     'head cabbage': 'aphid',
@@ -224,6 +267,45 @@ async function classifyPestImage(imagePath) {
     'acorn': 'armyworm',
     'ear': 'armyworm',
     'corn': 'armyworm',
+    'zucchini': 'whitefly',
+    'squash': 'whitefly',
+    'pumpkin': 'whitefly',
+    'bell pepper': 'aphid',
+    'artichoke': 'aphid',
+    'mushroom': 'aphid',
+    'agaric': 'aphid',
+    'fungus': 'aphid',
+    'lichen': 'aphid',
+    'moss': 'aphid',
+    'hay': 'armyworm',
+    'straw': 'armyworm',
+    'wheat': 'aphid',
+    'rice': 'aphid',
+    'rapeseed': 'aphid',
+    'daisy': 'aphid',
+    'sunflower': 'aphid',
+    'pot': 'aphid',
+    'flowerpot': 'aphid',
+    'vase': 'aphid',
+    'potpie': 'aphid',
+    'harvester': 'aphid',
+    'thresher': 'armyworm',
+    'tractor': 'aphid',
+    'plow': 'aphid',
+
+    // Textures / nature patterns that ResNet-50 sometimes returns for macro pest shots
+    'chain': 'aphid',
+    'web': 'ladybug',
+    'wool': 'armyworm',
+    'knot': 'armyworm',
+    'honeycomb': 'aphid',
+    'coral': 'aphid',
+    'sea anemone': 'aphid',
+    'jellyfish': 'whitefly',
+    'hip': 'aphid',
+    'acorn squash': 'whitefly',
+    'spaghetti squash': 'whitefly',
+    'butternut squash': 'whitefly',
   };
 
   try {
@@ -252,35 +334,21 @@ async function classifyPestImage(imagePath) {
           if (hfRes.ok) {
             const response = await hfRes.json();
             if (Array.isArray(response) && response.length > 0) {
-              // Log all top-5 results for debugging
-              logger.info(`HF resnet-50 results: ${response.slice(0, 5).map(r => `${r.label}(${(r.score*100).toFixed(1)}%)`).join(', ')}`);
+              // Log all top-10 results for debugging
+              logger.info(`HF resnet-50 results: ${response.slice(0, 10).map(r => `${r.label}(${(r.score*100).toFixed(1)}%)`).join(', ')}`);
               
-              // Check ALL top-5 results for pest-related or plant-related labels
+              // === TWO-PASS APPROACH ===
+              // PASS 1: Scan ALL top-10 results for pest-related labels FIRST
               let foundPestMapping = null;
               let bestScore = 0;
+              let topNonPestLabel = null;
+              let topNonPestScore = 0;
               
               for (const result of response.slice(0, 10)) {
                 const rawLabel = (result.label || '').toLowerCase();
                 const score = result.score || 0;
                 
-                // Check if this is an explicit non-pest object (person, car, furniture, etc.)
-                const isExplicitNonPest = NON_PEST_KEYWORDS.some(kw => rawLabel.includes(kw));
-                if (isExplicitNonPest && score > 0.3) {
-                  // Only reject if high confidence non-pest detection
-                  logger.info(`HF high-confidence non-pest: ${rawLabel} (${score})`);
-                  return {
-                    isPestDetected: false,
-                    pestId: null,
-                    pest: null,
-                    confidenceScore: Math.round(score * 100) / 100,
-                    isHarmful: false,
-                    message: `No pest detected (identified: ${result.label}). Please take a clear picture of an affected crop leaf or insect pest.`,
-                    affectedCrops: [],
-                    recommendedPesticides: []
-                  };
-                }
-                
-                // Try to map this label to a pest
+                // Try to map this label to a known pest
                 for (const [keyword, pestKey] of Object.entries(PEST_LABEL_MAP)) {
                   if (rawLabel.includes(keyword) && score > bestScore) {
                     foundPestMapping = pestKey;
@@ -290,11 +358,35 @@ async function classifyPestImage(imagePath) {
                     logger.info(`HF label "${rawLabel}" mapped to pest: ${pestKey} (score: ${score})`);
                   }
                 }
+                
+                // Track the strongest non-pest match (but don't reject yet!)
+                if (!topNonPestLabel) {
+                  const isExplicitNonPest = NON_PEST_KEYWORDS.some(kw => rawLabel.includes(kw));
+                  if (isExplicitNonPest && score > topNonPestScore) {
+                    topNonPestLabel = result.label;
+                    topNonPestScore = score;
+                  }
+                }
               }
               
+              // PASS 2: Only reject as non-pest if NO pest mapping was found AND
+              // there is a very high-confidence non-pest detection in the #1 slot
               if (foundPestMapping) {
                 logger.info(`HF AI detected pest category: ${foundPestMapping} (confidence: ${confidence})`);
                 break;
+              } else if (topNonPestLabel && topNonPestScore > 0.55) {
+                // Only reject when genuinely confident it's a non-pest object AND no pest labels found at all
+                logger.info(`HF high-confidence non-pest (no pest labels found): ${topNonPestLabel} (${topNonPestScore})`);
+                return {
+                  isPestDetected: false,
+                  pestId: null,
+                  pest: null,
+                  confidenceScore: Math.round(topNonPestScore * 100) / 100,
+                  isHarmful: false,
+                  message: `No pest detected (identified: ${topNonPestLabel}). Please take a clear picture of an affected crop leaf or insect pest.`,
+                  affectedCrops: [],
+                  recommendedPesticides: []
+                };
               } else {
                 logger.info(`HF labels did not match any pest mapping, will use pixel-based fallback`);
               }
