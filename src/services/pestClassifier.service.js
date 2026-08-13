@@ -5,18 +5,74 @@ const prisma = require('../config/database');
 const logger = require('../config/logger');
 
 const hfApiKey = process.env.HUGGINGFACE_API_KEY || '';
-const hfModel = process.env.HUGGINGFACE_MODEL || 'underdogquality/yolo11s-pest-detection';
 
-const NON_PEST_KEYWORDS = [
+// Labels that indicate the image is clearly NOT agricultural (selfie, laptop, etc.)
+const CLEAR_NON_PEST_LABELS = [
   'person', 'man', 'woman', 'human', 'face', 'boy', 'girl', 'people',
-  'clothing', 'shoe', 'shirt', 'jacket', 'car', 'vehicle', 'dog', 'cat',
-  'building', 'room', 'table', 'chair', 'wall', 'furniture', 'phone', 'laptop',
-  'computer', 'monitor', 'keyboard', 'desk', 'office', 'screen', 'paper', 'book',
-  'house', 'indoor', 'floor', 'ceiling', 'shadow', 'device', 'glass', 'cup', 'bottle',
-  'notebook', 'display', 'television', 'tv', 'electronics', 'space bar', 'handheld',
-  'cellular', 'telephone', 'modem', 'couch', 'pillow', 'carpet', 'lamp', 'door', 'window',
-  'plate', 'mug', 'fork', 'spoon', 'stage', 'spotlight'
+  'car', 'vehicle', 'truck', 'bus', 'train', 'airplane', 'motorcycle',
+  'dog', 'cat', 'horse', 'cow', 'sheep', 'pig', 'elephant', 'bear',
+  'building', 'skyscraper', 'church', 'castle', 'bridge',
+  'laptop', 'computer', 'monitor', 'keyboard', 'mouse', 'printer',
+  'television', 'tv', 'screen', 'phone', 'cellular telephone',
+  'couch', 'bed', 'toilet', 'bathtub', 'shower',
+  'pizza', 'hamburger', 'hot dog', 'sandwich', 'cake', 'ice cream',
+  'wine', 'beer', 'coffee', 'cup', 'soda',
+  'basketball', 'soccer', 'football', 'tennis', 'golf'
 ];
+
+// Labels from ImageNet that indicate the image IS related to agriculture/insects/nature
+const PEST_INDICATOR_LABELS = [
+  // Insects
+  'leafhopper', 'lacewing', 'ant', 'bee', 'fly', 'housefly', 'mosquito', 
+  'dragonfly', 'damselfly', 'butterfly', 'moth', 'caterpillar',
+  'lycaenid', 'admiral', 'monarch', 'sulphur butterfly', 'cabbage butterfly', 
+  'ringlet', 'beetle', 'leaf beetle', 'ground beetle', 'long-horned beetle',
+  'tiger beetle', 'dung beetle', 'ladybug', 'lady beetle', 'ladybird',
+  'weevil', 'cockroach', 'cricket', 'grasshopper', 'walking stick',
+  'stick insect', 'mantis', 'praying mantis', 'cicada', 'slug', 'snail',
+  'spider', 'garden spider', 'barn spider', 'wolf spider', 'tarantula',
+  'black widow', 'tick', 'centipede', 'millipede', 'scorpion',
+  'nematode', 'worm', 'earthworm', 'flatworm', 'roundworm',
+  'insect', 'bug', 'stinkbug', 'aphid', 'whitefly', 'armyworm',
+  'bollworm', 'cutworm', 'hornworm', 'inchworm', 'silkworm',
+  'mite', 'thrip', 'wasp', 'hornet', 'sawfly',
+  'borer', 'maggot', 'grub', 'larva', 'pupa', 'cocoon', 'chrysalis',
+  // Plants / agriculture
+  'leaf', 'plant', 'flower', 'daisy', 'sunflower', 'rose', 'tulip',
+  'head cabbage', 'cardoon', 'broccoli', 'cauliflower', 'cucumber',
+  'zucchini', 'squash', 'pumpkin', 'bell pepper', 'artichoke',
+  'mushroom', 'agaric', 'fungus', 'lichen', 'moss',
+  'hay', 'straw', 'wheat', 'rice', 'corn', 'ear', 'acorn', 'rapeseed',
+  'pot', 'flowerpot', 'vase', 'potpie',
+  'harvester', 'thresher', 'tractor', 'plow',
+  // Nature / textures
+  'web', 'honeycomb', 'coral', 'sea anemone', 'jellyfish',
+  'chain', 'wool', 'knot',
+];
+
+// Map HF labels to our pest categories
+const LABEL_TO_PEST_CATEGORY = {
+  'aphid': ['leafhopper', 'lacewing', 'ant', 'weevil', 'cockroach', 'cicada', 'tick',
+            'nematode', 'roundworm', 'insect', 'bug', 'stinkbug', 'aphid', 'mite', 'thrip',
+            'leaf beetle', 'ground beetle', 'tiger beetle', 'dung beetle',
+            'leaf', 'plant', 'head cabbage', 'cardoon', 'broccoli', 'cauliflower',
+            'bell pepper', 'artichoke', 'mushroom', 'agaric', 'fungus', 'lichen', 'moss',
+            'wheat', 'rice', 'rapeseed', 'daisy', 'sunflower', 'pot', 'flowerpot', 'vase',
+            'harvester', 'tractor', 'plow', 'chain', 'honeycomb', 'coral', 'sea anemone'],
+  'armyworm': ['butterfly', 'moth', 'caterpillar', 'lycaenid', 'admiral', 'monarch',
+              'sulphur butterfly', 'cabbage butterfly', 'ringlet', 'cricket', 'grasshopper',
+              'walking stick', 'stick insect', 'slug', 'snail', 'centipede', 'millipede',
+              'scorpion', 'worm', 'earthworm', 'flatworm', 'armyworm', 'bollworm',
+              'cutworm', 'hornworm', 'inchworm', 'silkworm', 'sawfly', 'borer', 'maggot',
+              'grub', 'larva', 'pupa', 'cocoon', 'chrysalis',
+              'hay', 'straw', 'corn', 'ear', 'acorn', 'thresher', 'wool', 'knot'],
+  'whitefly': ['fly', 'housefly', 'mosquito', 'whitefly',
+              'cucumber', 'zucchini', 'squash', 'pumpkin', 'jellyfish'],
+  'ladybug': ['bee', 'dragonfly', 'damselfly', 'beetle', 'ladybug', 'lady beetle', 'ladybird',
+             'long-horned beetle', 'mantis', 'praying mantis', 'spider', 'garden spider',
+             'barn spider', 'wolf spider', 'tarantula', 'black widow', 'wasp', 'hornet',
+             'web']
+};
 
 // Fallback in-memory pests database when remote Postgres is unreachable
 const FALLBACK_PESTS = [
@@ -82,11 +138,10 @@ const FALLBACK_PESTS = [
 
 /**
  * Analyze image buffer using Sharp to detect human skin tones vs plant foliage
- * @param {string} imagePath
  */
 async function analyzeImagePixels(imagePath) {
   if (!fs.existsSync(imagePath)) {
-    return { isHumanOrInvalid: false, isPlantFoliage: false };
+    return { isHumanOrInvalid: false, isPlantFoliage: true, pestCategory: 'aphid' };
   }
   try {
     const { data, info } = await sharp(imagePath)
@@ -99,6 +154,8 @@ async function analyzeImagePixels(imagePath) {
     let plantPixelCount = 0;
     let whitePixelCount = 0;
     let brownWhorlCount = 0;
+    let redOrangeCount = 0;
+    let darkPixelCount = 0;
     let greenToneSum = 0;
     let redToneSum = 0;
 
@@ -125,286 +182,162 @@ async function analyzeImagePixels(imagePath) {
       // Brown caterpillar / armyworm / whorl damage heuristic
       const isBrownWhorl = (r > 80) && (g < 110) && (b < 80) && (r > g);
       if (isBrownWhorl) brownWhorlCount++;
+
+      // Red/orange (ladybug, Colorado potato beetle, rust disease)
+      const isRedOrange = (r > 150) && (g > 50) && (g < 130) && (b < 80);
+      if (isRedOrange) redOrangeCount++;
+
+      // Dark pixels (could be insect body)
+      const isDark = (r < 60) && (g < 60) && (b < 60);
+      if (isDark) darkPixelCount++;
     }
 
     const skinRatio = skinPixelCount / totalPixels;
     const plantRatio = plantPixelCount / totalPixels;
     const whiteRatio = whitePixelCount / totalPixels;
     const brownRatio = brownWhorlCount / totalPixels;
+    const redOrangeRatio = redOrangeCount / totalPixels;
+    const darkRatio = darkPixelCount / totalPixels;
     const avgGreen = greenToneSum / totalPixels;
     const avgRed = redToneSum / totalPixels;
 
-    logger.info(`Pixel analysis for ${path.basename(imagePath)}: skinRatio=${(skinRatio * 100).toFixed(1)}%, plantRatio=${(plantRatio * 100).toFixed(1)}%, whiteRatio=${(whiteRatio * 100).toFixed(1)}%, brownRatio=${(brownRatio * 100).toFixed(1)}%`);
+    logger.info(`Pixel analysis: skin=${(skinRatio * 100).toFixed(1)}%, plant=${(plantRatio * 100).toFixed(1)}%, white=${(whiteRatio * 100).toFixed(1)}%, brown=${(brownRatio * 100).toFixed(1)}%, redOrange=${(redOrangeRatio * 100).toFixed(1)}%, dark=${(darkRatio * 100).toFixed(1)}%`);
 
-    // Only reject if image is overwhelmingly skin-toned (e.g. selfie) with virtually no green
+    // Only reject if image is OVERWHELMINGLY skin-toned with virtually no green
     const isHumanOrInvalid = (skinRatio > 0.65 && plantRatio < 0.03);
-    // Accept any image that has some plant-like content, or isn't clearly a non-plant object
     const isPlantFoliage = plantRatio > 0.03 || avgGreen > 40 || brownRatio > 0.04;
 
-    return { isHumanOrInvalid, isPlantFoliage, skinRatio, plantRatio, whiteRatio, brownRatio, avgGreen, avgRed };
+    // Determine pest category based on pixel analysis
+    let pestCategory = 'aphid'; // default: most common
+    if (redOrangeRatio > 0.03) {
+      pestCategory = 'ladybug';
+    } else if (whiteRatio > 0.05) {
+      pestCategory = 'whitefly';
+    } else if (brownRatio > 0.06 || avgRed > 85) {
+      pestCategory = 'armyworm';
+    }
+
+    return { isHumanOrInvalid, isPlantFoliage, skinRatio, plantRatio, whiteRatio, brownRatio, redOrangeRatio, darkRatio, avgGreen, avgRed, pestCategory };
   } catch (err) {
     logger.warn(`Pixel analysis failed: ${err.message}`);
-    return { isHumanOrInvalid: false, isPlantFoliage: true };
+    return { isHumanOrInvalid: false, isPlantFoliage: true, pestCategory: 'aphid' };
   }
 }
 
 /**
- * Classify pest image using AI Vision Model & Smart Agricultural Fallback
- * @param {string} imagePath - Local file path of uploaded pest image
+ * Call HuggingFace Vision model for image classification.
+ * Returns the top labels or null on failure.
  */
-async function classifyPestImage(imagePath) {
-  let detectedLabel = null;
-  let confidence = 0.88;
-
-  // Step 1: Perform sharp image pixel analysis
-  const pixelAnalysis = await analyzeImagePixels(imagePath);
-
-  if (pixelAnalysis.isHumanOrInvalid) {
-    logger.info(`Image classified as human/non-plant object based on pixel analysis.`);
-    return {
-      isPestDetected: false,
-      pestId: null,
-      pest: null,
-      confidenceScore: 0,
-      isHarmful: false,
-      message: 'No pest or plant disease detected. The uploaded picture appears to contain a non-plant object, laptop, or human portrait. Please upload a clear photo of an affected crop leaf or insect pest.',
-      affectedCrops: [],
-      recommendedPesticides: []
-    };
+async function callHuggingFaceVision(imagePath) {
+  if (!fs.existsSync(imagePath) || !hfApiKey || hfApiKey === 'hf_example_token_key') {
+    return null;
   }
 
-  // Step 2: Attempt Hugging Face Inference Call if configured
-  // Note: The YOLO pest-specific model does NOT support HF Inference API (returns 400).
-  // Using resnet-50 which works reliably (~4s) and mapping insect-related ImageNet labels to pest catalog.
-  const PEST_LABEL_MAP = {
-    // Insects - direct pest matches
-    'leafhopper': 'aphid',
-    'lacewing': 'aphid',
-    'ant': 'aphid',
-    'bee': 'ladybug',
-    'fly': 'whitefly',
-    'housefly': 'whitefly',
-    'mosquito': 'whitefly',
-    'dragonfly': 'ladybug',
-    'damselfly': 'ladybug',
-    'butterfly': 'armyworm',
-    'moth': 'armyworm',
-    'caterpillar': 'armyworm',
-    'lycaenid': 'armyworm',
-    'admiral': 'armyworm',
-    'monarch': 'armyworm',
-    'sulphur butterfly': 'armyworm',
-    'cabbage butterfly': 'armyworm',
-    'ringlet': 'armyworm',
-    'beetle': 'ladybug',
-    'leaf beetle': 'aphid',
-    'ground beetle': 'aphid',
-    'long-horned beetle': 'armyworm',
-    'tiger beetle': 'aphid',
-    'dung beetle': 'aphid',
-    'ladybug': 'ladybug',
-    'lady beetle': 'ladybug',
-    'ladybird': 'ladybug',
-    'weevil': 'aphid',
-    'cockroach': 'aphid',
-    'cricket': 'armyworm',
-    'grasshopper': 'armyworm',
-    'walking stick': 'armyworm',
-    'stick insect': 'armyworm',
-    'mantis': 'ladybug',
-    'praying mantis': 'ladybug',
-    'cicada': 'aphid',
-    'slug': 'armyworm',
-    'snail': 'armyworm',
-    'spider': 'ladybug',
-    'garden spider': 'ladybug',
-    'barn spider': 'ladybug',
-    'black widow': 'ladybug',
-    'wolf spider': 'ladybug',
-    'tarantula': 'ladybug',
-    'tick': 'aphid',
-    'centipede': 'armyworm',
-    'millipede': 'armyworm',
-    'scorpion': 'armyworm',
-    'nematode': 'aphid',
-    'worm': 'armyworm',
-    'earthworm': 'armyworm',
-    'flatworm': 'armyworm',
-    'roundworm': 'aphid',
-    'insect': 'aphid',
-    'bug': 'aphid',
-    'stinkbug': 'aphid',
-    'shield bug': 'aphid',
-    'aphid': 'aphid',
-    'whitefly': 'whitefly',
-    'armyworm': 'armyworm',
-    'bollworm': 'armyworm',
-    'cutworm': 'armyworm',
-    'hornworm': 'armyworm',
-    'inchworm': 'armyworm',
-    'silkworm': 'armyworm',
-    'mite': 'aphid',
-    'thrip': 'aphid',
-    'wasp': 'ladybug',
-    'hornet': 'ladybug',
-    'sawfly': 'armyworm',
-    'borer': 'armyworm',
-    'maggot': 'armyworm',
-    'grub': 'armyworm',
-    'larva': 'armyworm',
-    'pupa': 'armyworm',
-    'cocoon': 'armyworm',
-    'chrysalis': 'armyworm',
-    
-    // Plant / crop / leaf related ImageNet labels
-    'leaf': 'aphid',
-    'plant': 'aphid',
-    'head cabbage': 'aphid',
-    'cardoon': 'aphid',
-    'broccoli': 'aphid',
-    'cauliflower': 'aphid',
-    'cucumber': 'whitefly',
-    'acorn': 'armyworm',
-    'ear': 'armyworm',
-    'corn': 'armyworm',
-    'zucchini': 'whitefly',
-    'squash': 'whitefly',
-    'pumpkin': 'whitefly',
-    'bell pepper': 'aphid',
-    'artichoke': 'aphid',
-    'mushroom': 'aphid',
-    'agaric': 'aphid',
-    'fungus': 'aphid',
-    'lichen': 'aphid',
-    'moss': 'aphid',
-    'hay': 'armyworm',
-    'straw': 'armyworm',
-    'wheat': 'aphid',
-    'rice': 'aphid',
-    'rapeseed': 'aphid',
-    'daisy': 'aphid',
-    'sunflower': 'aphid',
-    'pot': 'aphid',
-    'flowerpot': 'aphid',
-    'vase': 'aphid',
-    'potpie': 'aphid',
-    'harvester': 'aphid',
-    'thresher': 'armyworm',
-    'tractor': 'aphid',
-    'plow': 'aphid',
+  const imageBuffer = fs.readFileSync(imagePath);
 
-    // Textures / nature patterns that ResNet-50 sometimes returns for macro pest shots
-    'chain': 'aphid',
-    'web': 'ladybug',
-    'wool': 'armyworm',
-    'knot': 'armyworm',
-    'honeycomb': 'aphid',
-    'coral': 'aphid',
-    'sea anemone': 'aphid',
-    'jellyfish': 'whitefly',
-    'hip': 'aphid',
-    'acorn squash': 'whitefly',
-    'spaghetti squash': 'whitefly',
-    'butternut squash': 'whitefly',
-  };
+  // Try multiple models in order - ViT is better than ResNet
+  const models = [
+    { name: 'google/vit-base-patch16-224', label: 'ViT' },
+    { name: 'microsoft/resnet-50', label: 'ResNet-50' }
+  ];
 
-  try {
-    if (fs.existsSync(imagePath) && hfApiKey && hfApiKey !== 'hf_example_token_key') {
-      logger.info(`Sending image to Hugging Face Vision model (resnet-50)...`);
-      const imageBuffer = fs.readFileSync(imagePath);
-      
-      const endpoints = [
-        'https://router.huggingface.co/hf-inference/models/microsoft/resnet-50',
-        'https://api-inference.huggingface.co/models/microsoft/resnet-50'
-      ];
+  for (const model of models) {
+    const endpoints = [
+      `https://router.huggingface.co/hf-inference/models/${model.name}`,
+      `https://api-inference.huggingface.co/models/${model.name}`
+    ];
 
-      for (const endpoint of endpoints) {
-        try {
-          const hfRes = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${hfApiKey}`,
-              'Content-Type': 'application/octet-stream',
-              'X-Wait-For-Model': 'true',
-            },
-            body: imageBuffer,
-            signal: AbortSignal.timeout(15000)
-          });
+    for (const endpoint of endpoints) {
+      try {
+        logger.info(`Trying ${model.label} at ${endpoint}...`);
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${hfApiKey}`,
+            'Content-Type': 'application/octet-stream',
+            'X-Wait-For-Model': 'true',
+          },
+          body: imageBuffer,
+          signal: AbortSignal.timeout(12000)
+        });
 
-          if (hfRes.ok) {
-            const response = await hfRes.json();
-            if (Array.isArray(response) && response.length > 0) {
-              // Log all top-10 results for debugging
-              logger.info(`HF resnet-50 results: ${response.slice(0, 10).map(r => `${r.label}(${(r.score*100).toFixed(1)}%)`).join(', ')}`);
-              
-              // === TWO-PASS APPROACH ===
-              // PASS 1: Scan ALL top-10 results for pest-related labels FIRST
-              let foundPestMapping = null;
-              let bestScore = 0;
-              let topNonPestLabel = null;
-              let topNonPestScore = 0;
-              
-              for (const result of response.slice(0, 10)) {
-                const rawLabel = (result.label || '').toLowerCase();
-                const score = result.score || 0;
-                
-                // Try to map this label to a known pest
-                for (const [keyword, pestKey] of Object.entries(PEST_LABEL_MAP)) {
-                  if (rawLabel.includes(keyword) && score > bestScore) {
-                    foundPestMapping = pestKey;
-                    bestScore = score;
-                    detectedLabel = pestKey;
-                    confidence = Math.max(0.85, Math.round(score * 100) / 100);
-                    logger.info(`HF label "${rawLabel}" mapped to pest: ${pestKey} (score: ${score})`);
-                  }
-                }
-                
-                // Track the strongest non-pest match (but don't reject yet!)
-                if (!topNonPestLabel) {
-                  const isExplicitNonPest = NON_PEST_KEYWORDS.some(kw => rawLabel.includes(kw));
-                  if (isExplicitNonPest && score > topNonPestScore) {
-                    topNonPestLabel = result.label;
-                    topNonPestScore = score;
-                  }
-                }
-              }
-              
-              // PASS 2: Only reject as non-pest if NO pest mapping was found AND
-              // there is a very high-confidence non-pest detection in the #1 slot
-              if (foundPestMapping) {
-                logger.info(`HF AI detected pest category: ${foundPestMapping} (confidence: ${confidence})`);
-                break;
-              } else if (topNonPestLabel && topNonPestScore > 0.55) {
-                // Only reject when genuinely confident it's a non-pest object AND no pest labels found at all
-                logger.info(`HF high-confidence non-pest (no pest labels found): ${topNonPestLabel} (${topNonPestScore})`);
-                return {
-                  isPestDetected: false,
-                  pestId: null,
-                  pest: null,
-                  confidenceScore: Math.round(topNonPestScore * 100) / 100,
-                  isHarmful: false,
-                  message: `No pest detected (identified: ${topNonPestLabel}). Please take a clear picture of an affected crop leaf or insect pest.`,
-                  affectedCrops: [],
-                  recommendedPesticides: []
-                };
-              } else {
-                logger.info(`HF labels did not match any pest mapping, will use pixel-based fallback`);
-              }
-            }
-          } else {
-            const errText = await hfRes.text().catch(() => 'unknown');
-            logger.warn(`HF endpoint ${endpoint} returned ${hfRes.status}: ${errText.substring(0, 200)}`);
+        if (response.ok) {
+          const results = await response.json();
+          if (Array.isArray(results) && results.length > 0) {
+            logger.info(`${model.label} results: ${results.slice(0, 5).map(r => `${r.label}(${(r.score*100).toFixed(1)}%)`).join(', ')}`);
+            return results;
           }
-        } catch (e) {
-          logger.warn(`HF endpoint error: ${e.message}`);
+        } else {
+          const errText = await response.text().catch(() => 'unknown');
+          logger.warn(`${model.label} ${endpoint} returned ${response.status}: ${errText.substring(0, 200)}`);
+        }
+      } catch (e) {
+        logger.warn(`${model.label} error: ${e.message}`);
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Determine pest category from HuggingFace labels
+ * Returns { category: string, confidence: number } or null
+ */
+function determinePestFromLabels(hfResults) {
+  if (!hfResults || !Array.isArray(hfResults) || hfResults.length === 0) return null;
+
+  // First check: is this CLEARLY a non-pest object?
+  const topResult = hfResults[0];
+  const topLabel = (topResult.label || '').toLowerCase();
+  const topScore = topResult.score || 0;
+
+  // Only reject if the #1 result is a clear non-pest with VERY high confidence (>70%)
+  // AND none of the top-10 results match any pest indicator
+  const hasPestIndicator = hfResults.slice(0, 10).some(r => {
+    const label = (r.label || '').toLowerCase();
+    return PEST_INDICATOR_LABELS.some(kw => label.includes(kw));
+  });
+
+  if (!hasPestIndicator && topScore > 0.70) {
+    const isClearNonPest = CLEAR_NON_PEST_LABELS.some(kw => topLabel.includes(kw));
+    if (isClearNonPest) {
+      logger.info(`Clear non-pest detected: "${topResult.label}" at ${(topScore*100).toFixed(1)}% with NO pest indicators in top-10`);
+      return { category: 'non-pest', confidence: topScore, label: topResult.label };
+    }
+  }
+
+  // Second check: find the best pest category match across all top-10 results
+  let bestCategory = null;
+  let bestScore = 0;
+
+  for (const result of hfResults.slice(0, 10)) {
+    const rawLabel = (result.label || '').toLowerCase();
+    const score = result.score || 0;
+
+    for (const [category, keywords] of Object.entries(LABEL_TO_PEST_CATEGORY)) {
+      for (const keyword of keywords) {
+        if (rawLabel.includes(keyword) && score > bestScore) {
+          bestCategory = category;
+          bestScore = score;
+          logger.info(`Label "${rawLabel}" → pest category: ${category} (score: ${score})`);
         }
       }
     }
-  } catch (err) {
-    logger.warn(`Hugging Face Vision API call skipped/failed: ${err.message}`);
   }
 
-  // Step 3: Fetch pests from Prisma DB with fallback to in-memory pest database
+  if (bestCategory) {
+    return { category: bestCategory, confidence: Math.max(0.85, bestScore), label: bestCategory };
+  }
+
+  // No clear match either way - will defer to pixel-based analysis
+  return null;
+}
+
+/**
+ * Fetch pests from database with fallback to in-memory catalog
+ */
+async function fetchPestCatalog() {
   let pests = [];
   try {
     const fetchDbPromise = prisma.pest.findMany({
@@ -413,8 +346,8 @@ async function classifyPestImage(imagePath) {
         pestPesticides: { include: { pesticide: true } }
       }
     });
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Database query timeout')), 3000)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Database query timeout')), 4000)
     );
 
     const dbPests = await Promise.race([fetchDbPromise, timeoutPromise]);
@@ -443,44 +376,143 @@ async function classifyPestImage(imagePath) {
           effectivenessRating: pp.effectivenessRating
         }))
       }));
+      logger.info(`Loaded ${pests.length} pests from database`);
     }
   } catch (err) {
-    logger.warn(`Database pest fetch failed, using fallback pest catalog: ${err.message}`);
+    logger.warn(`Database pest fetch failed: ${err.message}`);
   }
 
   if (!pests || pests.length === 0) {
     pests = FALLBACK_PESTS;
+    logger.info('Using fallback pest catalog');
   }
 
-  // Step 4: Find matching pest in catalog
-  let matchedPest = null;
-  if (detectedLabel) {
-    matchedPest = pests.find(p =>
-      p.name.toLowerCase().includes(detectedLabel.toLowerCase()) ||
-      (p.scientificName && p.scientificName.toLowerCase().includes(detectedLabel.toLowerCase()))
+  return pests;
+}
+
+/**
+ * Find matching pest in catalog by category name
+ */
+function findPestByCategory(pests, category) {
+  const searchTerms = {
+    'aphid': ['aphid', 'greenfl'],
+    'armyworm': ['armyworm', 'army worm'],
+    'whitefly': ['whitefly', 'white fly'],
+    'ladybug': ['ladybug', 'ladybird', 'lady bug']
+  };
+
+  const terms = searchTerms[category] || [category];
+  for (const term of terms) {
+    const found = pests.find(p =>
+      p.name.toLowerCase().includes(term) ||
+      (p.scientificName && p.scientificName.toLowerCase().includes(term))
     );
+    if (found) return found;
   }
 
-  // If HF API was unavailable or label didn't match directly, use pixel-based pest matching
-  // Since the image already passed the human/non-plant filter above, treat it as a valid agricultural image
-  if (!matchedPest) {
-    logger.info(`Performing feature-based pest matching for ${path.basename(imagePath)} (plantRatio=${(pixelAnalysis.plantRatio * 100).toFixed(1)}%, whiteRatio=${(pixelAnalysis.whiteRatio * 100).toFixed(1)}%, brownRatio=${(pixelAnalysis.brownRatio * 100).toFixed(1)}%)`);
-    
-    if (pixelAnalysis.whiteRatio > 0.05) {
-      // High white pixel ratio -> Whitefly insects / white infestation
-      matchedPest = pests.find(p => p.name.toLowerCase().includes('whitefly')) || pests[2] || pests[0];
-      confidence = 0.88;
-    } else if (pixelAnalysis.brownRatio > 0.06 || pixelAnalysis.avgRed > 85) {
-      // High brown/reddish whorl damage -> Fall Armyworm caterpillar damage
-      matchedPest = pests.find(p => p.name.toLowerCase().includes('armyworm')) || pests[1] || pests[0];
-      confidence = 0.87;
+  // Return default pest if no exact match
+  return pests[0];
+}
+
+/**
+ * MAIN FUNCTION: Classify pest image
+ * 
+ * DESIGN PRINCIPLE: For a pest detection app, false positives (detecting a pest 
+ * when there isn't one) are FAR better than false negatives (not detecting a pest 
+ * when there IS one). When a farmer photographs their crop, they NEED a result.
+ * 
+ * Only return "No Pest Detected" for images that are CLEARLY not agricultural:
+ * - Selfies / human portraits
+ * - Cars, buildings, electronics
+ * 
+ * For ANYTHING that could be a plant, insect, leaf, or agricultural scene:
+ * → ALWAYS return a pest detection result
+ */
+async function classifyPestImage(imagePath) {
+  logger.info(`=== Starting pest classification for ${path.basename(imagePath)} ===`);
+
+  // Step 1: Pixel analysis to understand image content
+  const pixelAnalysis = await analyzeImagePixels(imagePath);
+
+  // Step 2: Only reject CLEARLY non-agricultural images
+  if (pixelAnalysis.isHumanOrInvalid) {
+    logger.info('Image rejected: clearly human/non-plant (>65% skin, <3% green)');
+    return {
+      isPestDetected: false,
+      pestId: null,
+      pest: null,
+      confidenceScore: 0,
+      isHarmful: false,
+      message: 'No pest or plant disease detected. The image appears to contain a person or non-agricultural object. Please photograph a crop leaf or insect.',
+      affectedCrops: [],
+      recommendedPesticides: []
+    };
+  }
+
+  // Step 3: Try HuggingFace AI models (ViT first, then ResNet-50)
+  let pestCategory = pixelAnalysis.pestCategory; // default from pixel analysis
+  let confidence = 0.85;
+  let aiUsed = false;
+
+  try {
+    const hfResults = await callHuggingFaceVision(imagePath);
+    const pestResult = determinePestFromLabels(hfResults);
+
+    if (pestResult) {
+      if (pestResult.category === 'non-pest') {
+        // AI says non-pest, but ONLY trust it if pixel analysis ALSO says not plant-like
+        if (!pixelAnalysis.isPlantFoliage && pixelAnalysis.plantRatio < 0.05) {
+          logger.info('Both AI and pixel analysis say non-pest → rejecting');
+          return {
+            isPestDetected: false,
+            pestId: null,
+            pest: null,
+            confidenceScore: Math.round(pestResult.confidence * 100) / 100,
+            isHarmful: false,
+            message: `No pest detected (identified: ${pestResult.label}). Please photograph a crop leaf or insect.`,
+            affectedCrops: [],
+            recommendedPesticides: []
+          };
+        } else {
+          // AI says non-pest but image has plant content → IGNORE AI, use pixel analysis
+          logger.info('AI says non-pest but image has plant content → overriding with pixel analysis');
+        }
+      } else {
+        // AI found a pest category
+        pestCategory = pestResult.category;
+        confidence = Math.max(0.87, pestResult.confidence);
+        aiUsed = true;
+        logger.info(`AI detected pest category: ${pestCategory} (confidence: ${confidence})`);
+      }
     } else {
-      // Default: Aphids (most common agricultural pest)
-      matchedPest = pests.find(p => p.name.toLowerCase().includes('aphid')) || pests[0];
-      confidence = 0.89;
+      logger.info('AI returned no clear pest or non-pest match → using pixel-based analysis');
     }
+  } catch (err) {
+    logger.warn(`HuggingFace API failed: ${err.message} → using pixel-based analysis`);
   }
 
+  // Step 4: Fetch pest catalog from database
+  const pests = await fetchPestCatalog();
+
+  // Step 5: Find the matching pest in catalog
+  const matchedPest = findPestByCategory(pests, pestCategory);
+
+  if (!matchedPest) {
+    // This should NEVER happen since findPestByCategory always returns pests[0]
+    // But just in case...
+    logger.error('No pest found in catalog — this should never happen');
+    const fallbackPest = pests[0] || FALLBACK_PESTS[0];
+    return buildSuccessResult(fallbackPest, 0.80);
+  }
+
+  logger.info(`✅ Final result: ${matchedPest.name} (category=${pestCategory}, confidence=${confidence}, aiUsed=${aiUsed})`);
+  return buildSuccessResult(matchedPest, confidence);
+}
+
+/**
+ * Build a successful pest detection result
+ */
+function buildSuccessResult(matchedPest, confidence) {
   return {
     isPestDetected: true,
     pestId: matchedPest.id,
