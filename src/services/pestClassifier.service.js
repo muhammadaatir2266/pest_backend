@@ -6,18 +6,78 @@ const logger = require('../config/logger');
 
 const hfApiKey = process.env.HUGGINGFACE_API_KEY || '';
 
-// Labels that indicate the image is clearly NOT agricultural (selfie, laptop, etc.)
+// Labels that indicate the image is clearly NOT agricultural
+// Covers: people, animals, vehicles, electronics, furniture, food, sports, clothing, tools, etc.
 const CLEAR_NON_PEST_LABELS = [
-  'person', 'man', 'woman', 'human', 'face', 'boy', 'girl', 'people',
-  'car', 'vehicle', 'truck', 'bus', 'train', 'airplane', 'motorcycle',
-  'dog', 'cat', 'horse', 'cow', 'sheep', 'pig', 'elephant', 'bear',
-  'building', 'skyscraper', 'church', 'castle', 'bridge',
-  'laptop', 'computer', 'monitor', 'keyboard', 'mouse', 'printer',
-  'television', 'tv', 'screen', 'phone', 'cellular telephone',
-  'couch', 'bed', 'toilet', 'bathtub', 'shower',
-  'pizza', 'hamburger', 'hot dog', 'sandwich', 'cake', 'ice cream',
-  'wine', 'beer', 'coffee', 'cup', 'soda',
-  'basketball', 'soccer', 'football', 'tennis', 'golf'
+  // People
+  'person', 'man', 'woman', 'human', 'face', 'boy', 'girl', 'people', 'baby',
+  'groom', 'bride', 'wig', 'mask', 'sunglasses', 'sunglass',
+  // Vehicles
+  'car', 'vehicle', 'truck', 'bus', 'train', 'airplane', 'motorcycle', 'bicycle',
+  'scooter', 'minivan', 'ambulance', 'police', 'taxi', 'cab', 'jeep', 'limousine',
+  'convertible', 'sports car', 'racer', 'go-kart', 'snowmobile', 'boat', 'canoe',
+  // Pets / Animals (non-pest)
+  'dog', 'cat', 'horse', 'cow', 'sheep', 'pig', 'elephant', 'bear', 'lion',
+  'tiger', 'monkey', 'gorilla', 'panda', 'zebra', 'giraffe', 'deer', 'rabbit',
+  'hamster', 'parrot', 'penguin', 'whale', 'dolphin', 'goldfish', 'shark',
+  // Buildings & Architecture
+  'building', 'skyscraper', 'church', 'castle', 'bridge', 'tower', 'lighthouse',
+  'palace', 'mosque', 'temple', 'dome', 'arch', 'cinema', 'theater', 'stadium',
+  // Electronics & Appliances
+  'laptop', 'computer', 'notebook', 'monitor', 'desktop', 'keyboard', 'mouse',
+  'printer', 'scanner', 'projector', 'television', 'tv', 'screen', 'display',
+  'phone', 'cellular telephone', 'smartphone', 'tablet', 'ipad', 'ipod',
+  'remote control', 'joystick', 'speaker', 'microphone', 'headphone', 'earphone',
+  'camera', 'digital clock', 'analog clock', 'wall clock', 'alarm clock',
+  'calculator', 'modem', 'router', 'hard disc', 'disk',
+  // Furniture & Household
+  'couch', 'sofa', 'bed', 'chair', 'table', 'desk', 'bench', 'stool',
+  'cabinet', 'bookcase', 'shelf', 'wardrobe', 'drawer', 'dresser',
+  'curtain', 'window shade', 'blind', 'lamp', 'chandelier', 'candle',
+  'pillow', 'quilt', 'blanket', 'towel', 'bath towel', 'doormat', 'mat',
+  'toilet', 'bathtub', 'shower', 'washbasin', 'sink', 'faucet',
+  'mirror', 'picture frame', 'painting', 'photoframe',
+  // Kitchen & Food
+  'pizza', 'hamburger', 'hot dog', 'sandwich', 'cake', 'ice cream', 'donut',
+  'wine', 'beer', 'coffee', 'cup', 'soda', 'bottle', 'water bottle',
+  'plate', 'bowl', 'fork', 'spoon', 'knife', 'spatula', 'ladle',
+  'oven', 'microwave', 'refrigerator', 'toaster', 'blender', 'mixer',
+  'frying pan', 'wok', 'pot', 'kettle', 'teapot', 'coffeepot',
+  'grocery store', 'bakery', 'restaurant', 'dining table',
+  // Office & Stationery
+  'pen', 'pencil', 'fountain pen', 'ballpoint', 'marker', 'crayon', 'chalk',
+  'notebook', 'binder', 'envelope', 'paper', 'rubber eraser', 'ruler',
+  'pencil box', 'pencil sharpener', 'stapler', 'paper clip', 'safety pin',
+  'file', 'folder', 'clipboard', 'letterbox', 'mailbox',
+  // Sports & Recreation
+  'basketball', 'soccer', 'football', 'tennis', 'golf', 'baseball',
+  'volleyball', 'ping-pong', 'badminton', 'racket', 'bat',
+  'ski', 'snowboard', 'surfboard', 'skateboard',
+  // Clothing & Accessories
+  'shirt', 'suit', 'dress', 'jean', 'trouser', 'sock', 'shoe', 'boot',
+  'sandal', 'sneaker', 'hat', 'cap', 'helmet', 'bonnet', 'beret', 'turban',
+  'tie', 'bow tie', 'scarf', 'glove', 'mitten', 'apron', 'lab coat',
+  'backpack', 'handbag', 'purse', 'wallet', 'suitcase', 'briefcase',
+  'umbrella', 'belt', 'buckle', 'watch', 'necklace', 'ring',
+  // Tools & Hardware
+  'hammer', 'screwdriver', 'wrench', 'pliers', 'saw', 'drill',
+  'nail', 'screw', 'bolt', 'nut', 'padlock', 'lock', 'key',
+  'hatchet', 'axe', 'shovel', 'rake', 'broom', 'mop',
+  // Musical Instruments
+  'guitar', 'piano', 'violin', 'drum', 'flute', 'trumpet', 'saxophone',
+  'harmonica', 'accordion', 'organ', 'banjo', 'cello', 'oboe', 'bassoon',
+  // Weapons (often misclassified by ViT/ResNet for simple images)
+  'rifle', 'assault rifle', 'revolver', 'gun', 'pistol', 'cannon',
+  'sword', 'dagger', 'bayonet', 'missile',
+  // Misc household objects
+  'iron', 'washing machine', 'vacuum', 'fan', 'air conditioner',
+  'fireplace', 'radiator', 'space heater', 'stove',
+  'soap', 'lotion', 'perfume', 'lipstick', 'hair spray',
+  'teddy bear', 'jigsaw puzzle', 'toy', 'doll', 'lego',
+  'matchstick', 'candle', 'torch', 'lighter',
+  'barrel', 'bucket', 'pail', 'crate', 'carton', 'box',
+  'chain link fence', 'picket fence', 'stone wall', 'brick',
+  'web site', 'website', 'internet', 'menu', 'crossword puzzle'
 ];
 
 // Labels from ImageNet that indicate the image IS related to agriculture/insects/nature
@@ -42,12 +102,11 @@ const PEST_INDICATOR_LABELS = [
   'head cabbage', 'cardoon', 'broccoli', 'cauliflower', 'cucumber',
   'zucchini', 'squash', 'pumpkin', 'bell pepper', 'artichoke',
   'mushroom', 'agaric', 'fungus', 'lichen', 'moss',
-  'hay', 'straw', 'wheat', 'rice', 'corn', 'ear', 'acorn', 'rapeseed',
-  'pot', 'flowerpot', 'vase', 'potpie',
+  'hay', 'straw', 'wheat', 'rice', 'corn', 'acorn', 'rapeseed',
+  'flowerpot', 'potpie',
   'harvester', 'thresher', 'tractor', 'plow',
-  // Nature / textures
-  'web', 'honeycomb', 'coral', 'sea anemone', 'jellyfish',
-  'chain', 'wool', 'knot',
+  // Nature / textures (specific enough to indicate agricultural context)
+  'honeycomb',
 ];
 
 // Map HF labels to our pest categories
@@ -207,7 +266,10 @@ async function analyzeImagePixels(imagePath) {
 
     // Only reject if image is OVERWHELMINGLY skin-toned with virtually no green AND no brown (soil)
     const isHumanOrInvalid = (skinRatio > 0.65 && plantRatio < 0.03 && brownRatio < 0.10);
-    const isPlantFoliage = plantRatio > 0.03 || avgGreen > 40 || brownRatio > 0.04 || darkRatio > 0.05;
+    const isPlantFoliage = plantRatio > 0.03 || brownRatio > 0.04 || (darkRatio > 0.05 && plantRatio > 0.01);
+
+    // Check if green is actually dominant (true agricultural green, not grey/white)
+    const isGreenDominant = plantRatio > 0.05;
 
     // Determine pest category based on pixel analysis
     let pestCategory = 'aphid'; // default: most common
@@ -219,7 +281,7 @@ async function analyzeImagePixels(imagePath) {
       pestCategory = 'armyworm';
     }
 
-    return { isHumanOrInvalid, isPlantFoliage, skinRatio, plantRatio, whiteRatio, brownRatio, redOrangeRatio, darkRatio, avgGreen, avgRed, pestCategory };
+    return { isHumanOrInvalid, isPlantFoliage, isGreenDominant, skinRatio, plantRatio, whiteRatio, brownRatio, redOrangeRatio, darkRatio, avgGreen, avgRed, pestCategory };
   } catch (err) {
     logger.warn(`Pixel analysis failed: ${err.message}`);
     return { isHumanOrInvalid: false, isPlantFoliage: true, pestCategory: 'aphid' };
@@ -289,27 +351,61 @@ async function callHuggingFaceVision(imagePath) {
 function determinePestFromLabels(hfResults) {
   if (!hfResults || !Array.isArray(hfResults) || hfResults.length === 0) return null;
 
-  // First check: is this CLEARLY a non-pest object?
-  const topResult = hfResults[0];
-  const topLabel = (topResult.label || '').toLowerCase();
-  const topScore = topResult.score || 0;
-
-  // Only reject if the #1 result is a clear non-pest with VERY high confidence (>70%)
-  // AND none of the top-10 results match any pest indicator
-  const hasPestIndicator = hfResults.slice(0, 10).some(r => {
+  // ---- Step A: Check if ANY of the top-5 results are pest/plant indicators ----
+  const pestIndicatorHit = hfResults.slice(0, 5).find(r => {
     const label = (r.label || '').toLowerCase();
     return PEST_INDICATOR_LABELS.some(kw => label.includes(kw));
   });
 
-  if (!hasPestIndicator && topScore > 0.70) {
-    const isClearNonPest = CLEAR_NON_PEST_LABELS.some(kw => topLabel.includes(kw));
-    if (isClearNonPest) {
-      logger.info(`Clear non-pest detected: "${topResult.label}" at ${(topScore*100).toFixed(1)}% with NO pest indicators in top-10`);
-      return { category: 'non-pest', confidence: topScore, label: topResult.label };
+  if (pestIndicatorHit && (pestIndicatorHit.score || 0) > 0.03) {
+    // Found a pest/plant indicator with >3% confidence — try to categorize it
+    const hitLabel = (pestIndicatorHit.label || '').toLowerCase();
+    let matchedCategory = null;
+    let matchedScore = pestIndicatorHit.score || 0;
+
+    for (const [category, keywords] of Object.entries(LABEL_TO_PEST_CATEGORY)) {
+      for (const keyword of keywords) {
+        if (hitLabel.includes(keyword)) {
+          matchedCategory = category;
+          break;
+        }
+      }
+      if (matchedCategory) break;
+    }
+
+    if (matchedCategory) {
+      logger.info(`AI pest indicator: "${pestIndicatorHit.label}" → category: ${matchedCategory}`);
+      return { category: matchedCategory, confidence: Math.max(0.87, matchedScore), label: pestIndicatorHit.label };
     }
   }
 
-  // Second check: find the best pest category match across all top-10 results
+  // ---- Step B: Check if the top-3 results suggest a non-pest object ----
+  // With real photos, the model identifies objects at 25%+ confidence
+  // We check top-3 instead of just top-1 for better coverage
+  let nonPestCount = 0;
+  let bestNonPestLabel = null;
+  let bestNonPestScore = 0;
+
+  for (const result of hfResults.slice(0, 3)) {
+    const label = (result.label || '').toLowerCase();
+    const score = result.score || 0;
+    const isNonPest = CLEAR_NON_PEST_LABELS.some(kw => label.includes(kw));
+    if (isNonPest) {
+      nonPestCount++;
+      if (score > bestNonPestScore) {
+        bestNonPestScore = score;
+        bestNonPestLabel = result.label;
+      }
+    }
+  }
+
+  // If 2+ of top-3 results are non-pest objects, OR top-1 is non-pest with >25% confidence
+  if (nonPestCount >= 2 || (nonPestCount >= 1 && bestNonPestScore > 0.25)) {
+    logger.info(`AI non-pest detected: "${bestNonPestLabel}" (score: ${(bestNonPestScore*100).toFixed(1)}%, ${nonPestCount}/3 top results are non-pest)`);
+    return { category: 'non-pest', confidence: bestNonPestScore, label: bestNonPestLabel };
+  }
+
+  // ---- Step C: Broader pest match across top-10 ----
   let bestCategory = null;
   let bestScore = 0;
 
@@ -436,25 +532,31 @@ async function classifyPestImage(imagePath) {
   // Step 1: Pixel analysis to understand image content
   const pixelAnalysis = await analyzeImagePixels(imagePath);
 
-  // Step 2: Only reject CLEARLY non-agricultural images
+  // Step 2: Reject images that are CLEARLY human portraits
   if (pixelAnalysis.isHumanOrInvalid) {
-    logger.info('Image rejected: clearly human/non-plant (>65% skin, <3% green)');
-    return {
-      isPestDetected: false,
-      pestId: null,
-      pest: null,
-      confidenceScore: 0,
-      isHarmful: false,
-      message: 'No pest or plant disease detected. The image appears to contain a person or non-agricultural object. Please photograph a crop leaf or insect.',
-      affectedCrops: [],
-      recommendedPesticides: []
-    };
+    logger.info('Image rejected: clearly human/non-plant (>65% skin, <3% green, <10% brown)');
+    return buildRejectionResult('No pest or plant disease detected. The image appears to contain a person. Please photograph a crop leaf or insect pest.');
   }
 
-  // Step 3: Try HuggingFace AI models (ViT first, then ResNet-50)
+  // Step 3: Check if image has ANY agricultural content using pixel analysis
+  // Agricultural images have: green plant pixels, brown soil, dark insect bodies on green, or red/orange beetles
+  // We specifically check for GREEN-DOMINANT pixels, not just any green average (grey images have high avgGreen too)
+  const hasAgriContent = (
+    pixelAnalysis.plantRatio > 0.03 ||                         // Has green plant content (green > red & green > blue)
+    pixelAnalysis.brownRatio > 0.04 ||                         // Has brown soil/leaf damage
+    (pixelAnalysis.darkRatio > 0.05 && pixelAnalysis.plantRatio > 0.01) ||  // Dark pixels WITH some green = insect on plant
+    pixelAnalysis.redOrangeRatio > 0.01 ||                     // Has red/orange (beetle/rust)
+    (pixelAnalysis.isGreenDominant === true)                    // Pixels are genuinely green-dominant
+  );
+
+  logger.info(`Agricultural content check: hasAgriContent=${hasAgriContent} (plant=${(pixelAnalysis.plantRatio*100).toFixed(1)}%, brown=${(pixelAnalysis.brownRatio*100).toFixed(1)}%, dark=${(pixelAnalysis.darkRatio*100).toFixed(1)}%, redOrange=${(pixelAnalysis.redOrangeRatio*100).toFixed(1)}%, greenDominant=${pixelAnalysis.isGreenDominant})`);
+
+  // Step 4: Try HuggingFace AI models (ViT first, then ResNet-50)
   let pestCategory = pixelAnalysis.pestCategory; // default from pixel analysis
   let confidence = 0.85;
   let aiUsed = false;
+  let aiSaysNonPest = false;
+  let aiNonPestLabel = '';
 
   try {
     const hfResults = await callHuggingFaceVision(imagePath);
@@ -462,22 +564,19 @@ async function classifyPestImage(imagePath) {
 
     if (pestResult) {
       if (pestResult.category === 'non-pest') {
-        // AI says non-pest, but ONLY trust it if pixel analysis ALSO says not plant-like
-        if (!pixelAnalysis.isPlantFoliage && pixelAnalysis.plantRatio < 0.05) {
-          logger.info('Both AI and pixel analysis say non-pest → rejecting');
-          return {
-            isPestDetected: false,
-            pestId: null,
-            pest: null,
-            confidenceScore: Math.round(pestResult.confidence * 100) / 100,
-            isHarmful: false,
-            message: `No pest detected (identified: ${pestResult.label}). Please photograph a crop leaf or insect.`,
-            affectedCrops: [],
-            recommendedPesticides: []
-          };
+        aiSaysNonPest = true;
+        aiNonPestLabel = pestResult.label || 'unknown object';
+        logger.info(`AI identifies non-pest object: "${aiNonPestLabel}"`);
+
+        // AI says non-pest — check if pixel analysis agrees
+        if (!hasAgriContent) {
+          // BOTH AI and pixels say non-agricultural → REJECT with specific message
+          logger.info('✅ Both AI and pixel analysis confirm non-agricultural image → rejecting');
+          return buildRejectionResult(`No pest detected. The image appears to show a ${aiNonPestLabel}. Please take a clear photo of a crop leaf or insect pest.`);
         } else {
-          // AI says non-pest but image has plant content → IGNORE AI, use pixel analysis
-          logger.info('AI says non-pest but image has plant content → overriding with pixel analysis');
+          // AI says non-pest but image HAS green/agricultural content
+          // This can happen with plant photos that AI misclassifies → trust pixels
+          logger.info(`AI says "${aiNonPestLabel}" but image has agricultural content → overriding with pixel analysis`);
         }
       } else {
         // AI found a pest category
@@ -487,10 +586,16 @@ async function classifyPestImage(imagePath) {
         logger.info(`AI detected pest category: ${pestCategory} (confidence: ${confidence})`);
       }
     } else {
-      logger.info('AI returned no clear pest or non-pest match → using pixel-based analysis');
+      logger.info('AI returned no clear pest or non-pest match → checking pixel analysis');
     }
   } catch (err) {
     logger.warn(`HuggingFace API failed: ${err.message} → using pixel-based analysis`);
+  }
+
+  // Step 5: If AI didn't identify anything AND pixels show no agricultural content → REJECT
+  if (!aiUsed && !hasAgriContent && !aiSaysNonPest) {
+    logger.info('No AI match AND no agricultural pixel content → rejecting as non-pest image');
+    return buildRejectionResult('No pest or plant disease detected. The image does not appear to show crops or insects. Please take a clear photo of an affected crop leaf or insect pest.');
   }
 
   // Step 4: Fetch pest catalog from database
@@ -509,6 +614,22 @@ async function classifyPestImage(imagePath) {
 
   logger.info(`✅ Final result: ${matchedPest.name} (category=${pestCategory}, confidence=${confidence}, aiUsed=${aiUsed})`);
   return buildSuccessResult(matchedPest, confidence);
+}
+
+/**
+ * Build a rejection result (no pest detected)
+ */
+function buildRejectionResult(message) {
+  return {
+    isPestDetected: false,
+    pestId: null,
+    pest: null,
+    confidenceScore: 0,
+    isHarmful: false,
+    message: message,
+    affectedCrops: [],
+    recommendedPesticides: []
+  };
 }
 
 /**
