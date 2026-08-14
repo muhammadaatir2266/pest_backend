@@ -93,7 +93,10 @@ async function uploadPestImage(file) {
   }
 
   // 3. Fallback to local static URL path
-  return `/uploads/${file.filename}`;
+  const baseUrl = process.env.APP_BASE_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : '');
+  const finalUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}/uploads/${file.filename}` : `/uploads/${file.filename}`;
+  logger.info(`Serving image via static path: ${finalUrl}`);
+  return finalUrl;
 }
 
 module.exports = {
