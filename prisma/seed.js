@@ -2,7 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding Database with Pests, Crops, and Pesticides...');
+  console.log('Seeding Database with 12 Pests, Crops, and Pesticides...');
 
   // 1. Seed Crops
   const wheat = await prisma.crop.upsert({
@@ -88,6 +88,58 @@ async function main() {
     }
   });
 
+  const spinetoram = await prisma.pesticide.upsert({
+    where: { name: 'Spinetoram 11.7% SC' },
+    update: {},
+    create: {
+      name: 'Spinetoram 11.7% SC',
+      activeIngredient: 'Spinetoram',
+      type: 'chemical',
+      dosage: '0.8 ml per liter of water (160 ml/acre)',
+      applicationMethod: 'Foliar spray at early boll formation stage.',
+      safetyNotes: 'Toxic to aquatic organisms.'
+    }
+  });
+
+  const chlorantraniliprole = await prisma.pesticide.upsert({
+    where: { name: 'Chlorantraniliprole 18.5% SC' },
+    update: {},
+    create: {
+      name: 'Chlorantraniliprole 18.5% SC',
+      activeIngredient: 'Chlorantraniliprole',
+      type: 'chemical',
+      dosage: '0.4 ml per liter of water (50 ml/acre)',
+      applicationMethod: 'Apply at early stem elongation stage.',
+      safetyNotes: 'Target active larvae.'
+    }
+  });
+
+  const abamectin = await prisma.pesticide.upsert({
+    where: { name: 'Abamectin 1.8% EC' },
+    update: {},
+    create: {
+      name: 'Abamectin 1.8% EC',
+      activeIngredient: 'Abamectin',
+      type: 'chemical',
+      dosage: '0.5 ml per liter of water',
+      applicationMethod: 'Spray thoroughly on lower leaf surfaces.',
+      safetyNotes: 'Toxic to bees. Apply late evening.'
+    }
+  });
+
+  const tebuconazole = await prisma.pesticide.upsert({
+    where: { name: 'Tebuconazole 250 EC Fungicide' },
+    update: {},
+    create: {
+      name: 'Tebuconazole 250 EC Fungicide',
+      activeIngredient: 'Tebuconazole 25% EC',
+      type: 'chemical',
+      dosage: '1 ml per liter of water (200 ml/acre)',
+      applicationMethod: 'Foliar fungicide spray at first sign of pustules.',
+      safetyNotes: 'Wear mask and protective clothing.'
+    }
+  });
+
   // 3. Seed Pests
   const aphids = await prisma.pest.upsert({
     where: { name: 'Aphids (Greenflies)' },
@@ -137,38 +189,89 @@ async function main() {
     }
   });
 
+  const bollworm = await prisma.pest.upsert({
+    where: { name: 'Pink Bollworm / Cotton Bollworm' },
+    update: {},
+    create: {
+      name: 'Pink Bollworm / Cotton Bollworm',
+      scientificName: 'Pectinophora gossypiella',
+      description: 'Destructive moth larva that bores inside cotton bolls, destroying lint quality and seed yield.',
+      isHarmfulDefault: true,
+      imageUrl: 'https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=500'
+    }
+  });
+
+  const stemborer = await prisma.pest.upsert({
+    where: { name: 'Rice Stem Borer' },
+    update: {},
+    create: {
+      name: 'Rice Stem Borer',
+      scientificName: 'Scirpophaga incertulas',
+      description: 'Boring caterpillar that causes "dead hearts" in tillers and "white heads" in rice crops.',
+      isHarmfulDefault: true,
+      imageUrl: 'https://images.unsplash.com/photo-1530587191325-3db32d826c18?w=500'
+    }
+  });
+
+  const spidermite = await prisma.pest.upsert({
+    where: { name: 'Two-Spotted Spider Mite' },
+    update: {},
+    create: {
+      name: 'Two-Spotted Spider Mite',
+      scientificName: 'Tetranychus urticae',
+      description: 'Tiny sap-sucking arachnids that cause speckling, bronze discoloration, and fine webbing on leaves.',
+      isHarmfulDefault: true,
+      imageUrl: 'https://images.unsplash.com/photo-1563861826100-9cb868fdbe1c?w=500'
+    }
+  });
+
+  const wheatrust = await prisma.pest.upsert({
+    where: { name: 'Wheat Rust / Leaf Blight Disease' },
+    update: {},
+    create: {
+      name: 'Wheat Rust / Leaf Blight Disease',
+      scientificName: 'Puccinia striiformis / Fungal Disease',
+      description: 'Fungal crop disease causing yellow, orange, or reddish-brown pustules and spots on cereal crop leaves.',
+      isHarmfulDefault: true,
+      imageUrl: 'https://images.unsplash.com/photo-1590740880194-e6fae853ca6c?w=500'
+    }
+  });
+
   // 4. Link Pest-Crops
   await prisma.pestCrop.upsert({
     where: { pestId_cropId: { pestId: aphids.id, cropId: wheat.id } },
     update: {},
-    create: {
-      pestId: aphids.id,
-      cropId: wheat.id,
-      damageDescription: 'Sucks sap from wheat tillers and ears, causing yellowing and yield drop.',
-      severity: 'High'
-    }
+    create: { pestId: aphids.id, cropId: wheat.id, damageDescription: 'Sucks sap from wheat tillers, causing yellowing and yield drop.', severity: 'High' }
   });
 
   await prisma.pestCrop.upsert({
     where: { pestId_cropId: { pestId: armyworm.id, cropId: maize.id } },
     update: {},
-    create: {
-      pestId: armyworm.id,
-      cropId: maize.id,
-      damageDescription: 'Defoliation of maize leaves and severe damage to growing whorls.',
-      severity: 'Severe'
-    }
+    create: { pestId: armyworm.id, cropId: maize.id, damageDescription: 'Defoliation of maize leaves and severe damage to growing whorls.', severity: 'Severe' }
   });
 
   await prisma.pestCrop.upsert({
     where: { pestId_cropId: { pestId: whitefly.id, cropId: cotton.id } },
     update: {},
-    create: {
-      pestId: whitefly.id,
-      cropId: cotton.id,
-      damageDescription: 'Causes soot mold and spreads Cotton Leaf Curl Virus (CLCV).',
-      severity: 'Severe'
-    }
+    create: { pestId: whitefly.id, cropId: cotton.id, damageDescription: 'Causes soot mold and spreads Cotton Leaf Curl Virus (CLCV).', severity: 'Severe' }
+  });
+
+  await prisma.pestCrop.upsert({
+    where: { pestId_cropId: { pestId: bollworm.id, cropId: cotton.id } },
+    update: {},
+    create: { pestId: bollworm.id, cropId: cotton.id, damageDescription: 'Bores inside green bolls causing lint damage.', severity: 'Severe' }
+  });
+
+  await prisma.pestCrop.upsert({
+    where: { pestId_cropId: { pestId: stemborer.id, cropId: rice.id } },
+    update: {},
+    create: { pestId: stemborer.id, cropId: rice.id, damageDescription: 'Bores into rice stems preventing grain filling.', severity: 'Severe' }
+  });
+
+  await prisma.pestCrop.upsert({
+    where: { pestId_cropId: { pestId: wheatrust.id, cropId: wheat.id } },
+    update: {},
+    create: { pestId: wheatrust.id, cropId: wheat.id, damageDescription: 'Yellow stripes and pustules on leaves leading to grain shriveling.', severity: 'Severe' }
   });
 
   // 5. Link Pest-Pesticides
@@ -191,15 +294,27 @@ async function main() {
   });
 
   await prisma.pestPesticide.upsert({
-    where: { pestId_pesticideId: { pestId: armyworm.id, pesticideId: btOrganic.id } },
+    where: { pestId_pesticideId: { pestId: bollworm.id, pesticideId: spinetoram.id } },
     update: {},
-    create: { pestId: armyworm.id, pesticideId: btOrganic.id, effectivenessRating: 'High (Organic)' }
+    create: { pestId: bollworm.id, pesticideId: spinetoram.id, effectivenessRating: 'Essential' }
   });
 
   await prisma.pestPesticide.upsert({
-    where: { pestId_pesticideId: { pestId: whitefly.id, pesticideId: imidacloprid.id } },
+    where: { pestId_pesticideId: { pestId: stemborer.id, pesticideId: chlorantraniliprole.id } },
     update: {},
-    create: { pestId: whitefly.id, pesticideId: imidacloprid.id, effectivenessRating: 'Essential' }
+    create: { pestId: stemborer.id, pesticideId: chlorantraniliprole.id, effectivenessRating: 'Essential' }
+  });
+
+  await prisma.pestPesticide.upsert({
+    where: { pestId_pesticideId: { pestId: spidermite.id, pesticideId: abamectin.id } },
+    update: {},
+    create: { pestId: spidermite.id, pesticideId: abamectin.id, effectivenessRating: 'Essential' }
+  });
+
+  await prisma.pestPesticide.upsert({
+    where: { pestId_pesticideId: { pestId: wheatrust.id, pesticideId: tebuconazole.id } },
+    update: {},
+    create: { pestId: wheatrust.id, pesticideId: tebuconazole.id, effectivenessRating: 'Essential' }
   });
 
   console.log('Database Seeding Completed Successfully!');
