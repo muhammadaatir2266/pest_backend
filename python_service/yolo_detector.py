@@ -37,11 +37,58 @@ except ImportError as cv_err:
         img = Image.open(io.BytesIO(buf)).convert("RGB")
         return np.array(img)[:, :, ::-1]
 
+    def imshow(winname, mat):
+        pass
+
+    def cvtColor(src, code, dst=None):
+        return src
+
+    def resize(src, dsize, dst=None, fx=0, fy=0, interpolation=0):
+        if isinstance(src, np.ndarray):
+            h, w = src.shape[:2]
+            target_w, target_h = dsize
+            if (w, h) == (target_w, target_h):
+                return src
+            img = Image.fromarray(src)
+            img = img.resize((target_w, target_h))
+            return np.array(img)
+        return src
+
+    def rectangle(img, pt1, pt2, color, thickness=1, lineType=8, shift=0):
+        return img
+
+    def putText(img, text, org, fontFace, fontScale, color, thickness=1, lineType=8, bottomLeftOrigin=False):
+        return img
+
+    def getTextSize(text, fontFace, fontScale, thickness):
+        return (len(str(text)) * 10, 20), 5
+
+    def line(img, pt1, pt2, color, thickness=1, lineType=8, shift=0):
+        return img
+
+    def polylines(img, pts, isClosed, color, thickness=1, lineType=8, shift=0):
+        return img
+
     mock_cv2.imread = imread
     mock_cv2.imwrite = imwrite
     mock_cv2.imdecode = imdecode
+    mock_cv2.imshow = imshow
+    mock_cv2.cvtColor = cvtColor
+    mock_cv2.resize = resize
+    mock_cv2.rectangle = rectangle
+    mock_cv2.putText = putText
+    mock_cv2.getTextSize = getTextSize
+    mock_cv2.line = line
+    mock_cv2.polylines = polylines
+
     mock_cv2.IMREAD_COLOR = 1
     mock_cv2.IMREAD_UNCHANGED = -1
+    mock_cv2.COLOR_BGR2RGB = 4
+    mock_cv2.COLOR_RGB2BGR = 4
+    mock_cv2.INTER_LINEAR = 1
+    mock_cv2.INTER_AREA = 3
+    mock_cv2.FONT_HERSHEY_SIMPLEX = 0
+    mock_cv2.LINE_AA = 16
 
     sys.modules["cv2"] = mock_cv2
 
