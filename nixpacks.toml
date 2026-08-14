@@ -2,7 +2,7 @@
 nixPkgs = ["nodejs_20", "python311", "python311Packages.pip"]
 
 [phases.build]
-cmds = ["npm install", "pip install -r requirements.txt", "npx prisma generate"]
+cmds = ["npm install", "pip install --break-system-packages -r requirements.txt", "npx prisma generate"]
 
 [start]
 cmd = "npx prisma db push && node prisma/seed.js && node src/server.js"
