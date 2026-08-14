@@ -9,6 +9,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ["OPENCV_HEADLESS"] = "1"
 
+from PIL import Image, ImageOps
+
 # Handle cv2 import gracefully if Linux shared GUI libraries (libxcb.so.1, libGL.so.1) are absent
 try:
     import cv2
@@ -16,7 +18,6 @@ except ImportError as cv_err:
     print(f"⚠️ Warning: Native cv2 import failed ({cv_err}). Using MagicMock + Pillow interceptor for headless YOLO execution.")
     from unittest.mock import MagicMock
     import numpy as np
-    from PIL import Image
 
     mock_cv2 = MagicMock()
     mock_cv2.__file__ = "mock_cv2"
@@ -188,6 +189,7 @@ class YoloDetectionHandler(BaseHTTPRequestHandler):
 
             infer_start = time.time()
             with Image.open(image_path) as raw_img:
+                raw_img = ImageOps.exif_transpose(raw_img)
                 pil_rgb = raw_img.convert("RGB")
                 results = model(pil_rgb, conf=conf_threshold, verbose=False)
             infer_time = time.time() - infer_start
