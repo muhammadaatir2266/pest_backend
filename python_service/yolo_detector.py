@@ -13,12 +13,12 @@ os.environ["OPENCV_HEADLESS"] = "1"
 try:
     import cv2
 except ImportError as cv_err:
-    print(f"⚠️ Warning: Native cv2 import failed ({cv_err}). Using pure Python/Pillow interceptor for headless YOLO execution.")
-    import types
+    print(f"⚠️ Warning: Native cv2 import failed ({cv_err}). Using MagicMock + Pillow interceptor for headless YOLO execution.")
+    from unittest.mock import MagicMock
     import numpy as np
     from PIL import Image
 
-    mock_cv2 = types.ModuleType("cv2")
+    mock_cv2 = MagicMock()
     mock_cv2.__file__ = "mock_cv2"
 
     def imread(filename, flags=1):
