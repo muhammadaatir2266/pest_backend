@@ -68,6 +68,19 @@ except ImportError as cv_err:
     def line(img, pt1, pt2, color, thickness=1, lineType=8, shift=0):
         return img
 
+    def copyMakeBorder(src, top, bottom, left, right, borderType, value=None):
+        if isinstance(src, np.ndarray) and len(src.shape) == 3:
+            h, w, c = src.shape
+            fill_val = 114
+            if isinstance(value, (int, float)):
+                fill_val = int(value)
+            elif isinstance(value, (tuple, list)) and len(value) > 0:
+                fill_val = int(value[0])
+            padded = np.full((h + top + bottom, w + left + right, c), fill_val, dtype=src.dtype)
+            padded[top:top+h, left:left+w] = src
+            return padded
+        return src
+
     def polylines(img, pts, isClosed, color, thickness=1, lineType=8, shift=0):
         return img
 
@@ -77,6 +90,7 @@ except ImportError as cv_err:
     mock_cv2.imshow = imshow
     mock_cv2.cvtColor = cvtColor
     mock_cv2.resize = resize
+    mock_cv2.copyMakeBorder = copyMakeBorder
     mock_cv2.rectangle = rectangle
     mock_cv2.putText = putText
     mock_cv2.getTextSize = getTextSize
@@ -89,6 +103,7 @@ except ImportError as cv_err:
     mock_cv2.COLOR_RGB2BGR = 4
     mock_cv2.INTER_LINEAR = 1
     mock_cv2.INTER_AREA = 3
+    mock_cv2.BORDER_CONSTANT = 0
     mock_cv2.FONT_HERSHEY_SIMPLEX = 0
     mock_cv2.LINE_AA = 16
 
