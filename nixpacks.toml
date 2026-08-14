@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_20", "python311", "python311Packages.pip", "libglvnd", "glib"
 cmds = [
   "npm install",
   "pip install --break-system-packages -r requirements.txt",
-  "pip uninstall -y opencv-python opencv-python-headless",
+  "pip uninstall --break-system-packages -y opencv-python || true",
   "pip install --break-system-packages opencv-python-headless",
   "npx prisma generate"
 ]
