@@ -22,8 +22,9 @@ except ImportError as cv_err:
     mock_cv2.__file__ = "mock_cv2"
 
     def imread(filename, flags=1):
-        img = Image.open(filename).convert("RGB")
-        return np.array(img)[:, :, ::-1]
+        with Image.open(filename) as img:
+            arr = np.array(img.convert("RGB"))
+            return arr[:, :, ::-1].copy()
 
     def imwrite(filename, img, params=None):
         if isinstance(img, np.ndarray):
@@ -34,8 +35,9 @@ except ImportError as cv_err:
 
     def imdecode(buf, flags=1):
         import io
-        img = Image.open(io.BytesIO(buf)).convert("RGB")
-        return np.array(img)[:, :, ::-1]
+        with Image.open(io.BytesIO(buf)) as img:
+            arr = np.array(img.convert("RGB"))
+            return arr[:, :, ::-1].copy()
 
     def imshow(winname, mat):
         pass
@@ -170,7 +172,9 @@ class YoloDetectionHandler(BaseHTTPRequestHandler):
                 return
 
             infer_start = time.time()
-            results = model(image_path, conf=conf_threshold, verbose=False)
+            with Image.open(image_path) as raw_img:
+                pil_rgb = raw_img.convert("RGB")
+                results = model(pil_rgb, conf=conf_threshold, verbose=False)
             infer_time = time.time() - infer_start
 
             detections = []
