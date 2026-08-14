@@ -22,10 +22,42 @@ const createScan = async (req, res, next) => {
 
     let savedScan = null;
     if (userId) {
+      let validPestId = null;
+      if (analysis.isPestDetected && analysis.pest) {
+        try {
+          const existingPest = await prisma.pest.findFirst({
+            where: {
+              OR: [
+                { id: analysis.pest.id },
+                { name: analysis.pest.name }
+              ]
+            }
+          });
+
+          if (existingPest) {
+            validPestId = existingPest.id;
+          } else {
+            const newPest = await prisma.pest.create({
+              data: {
+                name: analysis.pest.name,
+                scientificName: analysis.pest.scientificName || null,
+                description: analysis.pest.description || 'Agricultural pest detected by AI.',
+                isHarmfulDefault: analysis.isHarmful !== undefined ? analysis.isHarmful : true,
+                imageUrl: analysis.pest.imageUrl || null
+              }
+            });
+            validPestId = newPest.id;
+          }
+        } catch (err) {
+          // If pest lookup fails, fall back to null to preserve scan creation
+          validPestId = null;
+        }
+      }
+
       savedScan = await prisma.scan.create({
         data: {
           userId,
-          pestId: analysis.pestId || null,
+          pestId: validPestId,
           imageUrl,
           confidenceScore: analysis.confidenceScore,
           isHarmful: analysis.isHarmful,
