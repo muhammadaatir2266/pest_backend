@@ -4,7 +4,49 @@ import json
 import time
 import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# Headless & Offscreen environment flags
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ["OPENCV_HEADLESS"] = "1"
+
+# Handle cv2 import gracefully if Linux shared GUI libraries (libxcb.so.1, libGL.so.1) are absent
+try:
+    import cv2
+except ImportError as cv_err:
+    print(f"⚠️ Warning: Native cv2 import failed ({cv_err}). Using pure Python/Pillow interceptor for headless YOLO execution.")
+    import types
+    import numpy as np
+    from PIL import Image
+
+    mock_cv2 = types.ModuleType("cv2")
+    mock_cv2.__file__ = "mock_cv2"
+
+    def imread(filename, flags=1):
+        img = Image.open(filename).convert("RGB")
+        return np.array(img)[:, :, ::-1]
+
+    def imwrite(filename, img, params=None):
+        if isinstance(img, np.ndarray):
+            rgb_img = img[:, :, ::-1] if len(img.shape) == 3 and img.shape[2] == 3 else img
+            Image.fromarray(rgb_img).save(filename)
+            return True
+        return False
+
+    def imdecode(buf, flags=1):
+        import io
+        img = Image.open(io.BytesIO(buf)).convert("RGB")
+        return np.array(img)[:, :, ::-1]
+
+    mock_cv2.imread = imread
+    mock_cv2.imwrite = imwrite
+    mock_cv2.imdecode = imdecode
+    mock_cv2.IMREAD_COLOR = 1
+    mock_cv2.IMREAD_UNCHANGED = -1
+
+    sys.modules["cv2"] = mock_cv2
+
 from ultralytics import YOLO
+
 
 # Environment Configuration
 MODEL_PATH_OR_URL = os.environ.get(
